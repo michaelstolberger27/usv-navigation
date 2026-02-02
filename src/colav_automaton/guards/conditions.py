@@ -40,16 +40,18 @@ def check_G11_dynamic(
     """
     if not obstacles_list:
         return False
-    
-    # Use unified unsafe region for multi-obstacle scenarios (Scenario 3 optimization)
+
+    # Use unified unsafe region for multi-obstacle scenarios
     unsafe_polygon = compute_unified_unsafe_region(pos_x, pos_y, obstacles_list, Cs)
-    
+
     if unsafe_polygon is None:
         return False
-    
-    # Create LOS cone
-    los_cone = create_los_cone(pos_x, pos_y, xw, yw, v, tp)
-    
+
+    # Use a narrower LOS cone for checking (reduced uncertainty after maneuvers)
+    # This prevents false positives when ship has already passed obstacle
+    effective_tp = min(tp, 1.0)  # Cap cone width at 1 second of travel
+    los_cone = create_los_cone(pos_x, pos_y, xw, yw, v, effective_tp)
+
     # Check intersection
     return unsafe_polygon.intersects(los_cone)
 
@@ -111,34 +113,58 @@ def check_G12_dynamic(
     return False
 
 
-def L1_check(pos_x: float, pos_y: float, v1_x: float, v1_y: float, delta: float) -> bool:
+def L1_check(pos_x: float, pos_y: float, v1_x: float, v1_y: float, delta: float,
+              psi: float = None, alignment_threshold: float = np.pi/60) -> bool:
     """
     L1: Check if ||p(t) - V1|| > delta (not yet reached V1)
-    
+
+    If psi is provided, also checks that heading is aligned with V1 direction.
+    This ensures the ship is heading toward V1 when transitioning to S3.
+
     Args:
         pos_x, pos_y: Current ship position
         v1_x, v1_y: Virtual waypoint V1 position
         delta: Arrival tolerance
-        
+        psi: Current heading (optional, for alignment check)
+        alignment_threshold: Maximum heading error (default 30°)
+
     Returns:
-        bool: True if not yet reached V1
+        bool: True if not yet reached V1 (or not aligned if psi provided)
     """
     dist_to_v1 = np.sqrt((pos_x - v1_x)**2 + (pos_y - v1_y)**2)
-    return dist_to_v1 > delta
+
+    # Basic distance check
+    if dist_to_v1 > delta:
+        return True
+
+    # If psi provided, also check heading alignment
+    if psi is not None:
+        angle_to_v1 = np.arctan2(v1_y - pos_y, v1_x - pos_x)
+        heading_error = np.abs(np.arctan2(np.sin(psi - angle_to_v1), np.cos(psi - angle_to_v1)))
+        # Return True (not reached) if heading not aligned
+        if heading_error > alignment_threshold:
+            return True
+
+    return False
 
 
 def L2_check(pos_x: float, pos_y: float, psi: float, v1_x: float, v1_y: float) -> bool:
     """
-    L2: Check if V1 is ahead of ship (within ±π/2 of heading)
-    
+    L2: Check if V1 is ahead of ship (within ±2π/3 of heading)
+
+    Uses a wider threshold (±120°) to ensure V1 is truly behind before
+    triggering transition to S3. This prevents premature transitions when
+    V1 is at a steep starboard angle.
+
     Args:
         pos_x, pos_y: Current ship position
         psi: Current heading
         v1_x, v1_y: Virtual waypoint V1 position
-        
+
     Returns:
-        bool: True if V1 is ahead
+        bool: True if V1 is ahead (within ±120° of heading)
     """
     angle_to_v1 = np.arctan2(v1_y - pos_y, v1_x - pos_x)
     relative_angle = np.arctan2(np.sin(angle_to_v1 - psi), np.cos(angle_to_v1 - psi))
-    return -np.pi/2 < relative_angle < np.pi/2
+    # Use ±2π/3 (±120°) instead of ±π/2 (±90°) to prevent premature transitions
+    return -2*np.pi/3 < relative_angle < 2*np.pi/3

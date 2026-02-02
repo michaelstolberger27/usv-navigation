@@ -247,8 +247,8 @@ class ColavSimulation:
         while True:
             await asyncio.sleep(0.0001)
             try:
-                sim_time = self.automaton.get_active_elapsed_time()
-                state = self.automaton.get_continous_state()
+                sim_time = self.automaton.get_runtime_time_elapsed()
+                state = self.automaton.get_runtime_continuous_state().latest()
 
                 # Check waypoint reached
                 dist = np.sqrt(

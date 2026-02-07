@@ -94,27 +94,35 @@ pip install -e .
 ### Basic Usage
 
 ```python
+import asyncio
+import numpy as np
 from colav_automaton import ColavAutomaton
-
-# Create automaton with single obstacle
-automaton = ColavAutomaton(
-    waypoint_x=20.0,
-    waypoint_y=20.0,
-    obstacles=[(10.0, 10.0, 0.0, 0.0)],  # (x, y, velocity, heading)
-    Cs=2.0,  # Safety radius (meters)
-    v=12.0,  # Vessel velocity (m/s)
-    tp=1.0   # Prescribed time (seconds)
-)
-
-# Use with hybrid_automaton_runner to simulate
 from hybrid_automaton_runner import AutomatonRunner
 
-runner = AutomatonRunner(automaton)
-results = runner.run(
-    initial_state=[0.0, 0.0, 0.0],  # [x, y, heading]
-    max_time=30.0,
-    dt=0.1
-)
+async def main():
+    # Create automaton with single obstacle
+    automaton = ColavAutomaton(
+        waypoint_x=20.0,
+        waypoint_y=20.0,
+        obstacles=[(10.0, 10.0, 0.0, 0.0)],  # (x, y, velocity, heading)
+        Cs=2.0,   # Safety radius (meters)
+        v=12.0,   # Vessel velocity (m/s)
+        tp=1.0    # Prescribed time (seconds)
+    )
+
+    # Run simulation
+    runner = AutomatonRunner(automaton, sampling_rate=0.001)
+    await runner.run(
+        x0=np.array([0.0, 0.0, 0.0]),  # [x, y, heading]
+        duration=30.0,
+        dt=0.1,
+        integrate=True,
+        real_time_mode=False
+    )
+
+    results = runner.get_results()
+
+asyncio.run(main())
 ```
 
 ### Running Examples
@@ -161,6 +169,7 @@ python realtime_simulation.py --save --save-all    # Save animations as GIFs
 ```
 usv-navigation/
 ├── src/
+│   ├── main.py                      # Basic example with plotting
 │   └── colav_automaton/
 │       ├── __init__.py              # Package exports
 │       ├── __about__.py             # Version information
@@ -180,7 +189,8 @@ usv-navigation/
 │           └── unsafe_sets.py       # Convex hull & LOS cone geometry
 ├── examples/
 │   ├── simulate_colav.py            # Batch simulation with visualization
-│   └── realtime_simulation.py       # Live animated simulation
+│   ├── realtime_simulation.py       # Live animated simulation
+│   └── output/                      # Generated GIF animations
 └── README.md
 ```
 
@@ -200,13 +210,13 @@ ColavAutomaton(
     a: float = 1.67,            # System dynamics parameter
     eta: float = 3.5,           # Controller gain
     tp: float = 1.0,            # Prescribed time (seconds)
-    v1_buffer: float = 0.0,     # Virtual waypoint offset (meters)
-    dsafe: float = 2.0,         # Safe distance threshold
-    delta: float = 0.5,         # Arrival tolerance (meters)
-    obstacle_x: float = None,   # Legacy: single obstacle x
-    obstacle_y: float = None    # Legacy: single obstacle y
+    v1_buffer: float = 0.0      # Virtual waypoint offset (meters)
 )
 ```
+
+> **Note:** `delta` and `dsafe` are derived automatically:
+> - `delta = max(5.0, v * tp * 0.5)` — arrival tolerance
+> - `dsafe = Cs + (v * 2) * tp` — safe distance threshold
 
 ### State Dynamics ([dynamics/dynamics.py](src/colav_automaton/dynamics/dynamics.py))
 
@@ -362,16 +372,21 @@ Returns a configured `Automaton` object ready for simulation.
 
 ```python
 from hybrid_automaton_runner import AutomatonRunner
+import numpy as np
 
-runner = AutomatonRunner(automaton)
-results = runner.run(
-    initial_state=[x0, y0, psi0],
-    max_time=30.0,
-    dt=0.1
+runner = AutomatonRunner(automaton, sampling_rate=0.001)
+await runner.run(
+    x0=np.array([x0, y0, psi0]),
+    duration=30.0,
+    dt=0.1,
+    integrate=True,
+    real_time_mode=False
 )
+
+results = runner.get_results()
 ```
 
-Returns simulation results including trajectory, state history, and transition log.
+Returns simulation results including continuous states, automaton states, and transition times.
 
 ## Algorithm References
 

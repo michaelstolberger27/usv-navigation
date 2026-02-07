@@ -16,35 +16,6 @@ def normalize_angle(angle: float) -> float:
     return np.arctan2(np.sin(angle), np.cos(angle))
 
 
-def heading_normalizing_integrator(state: np.ndarray, xdot: np.ndarray, dt: float) -> np.ndarray:
-    """
-    Integration function compatible with hybrid_automaton's Automaton.
-
-    This function matches the signature expected by Automaton.Runtime.ContinousState:
-        integration_function(state, xdot, dt) -> new_state
-
-    Performs Euler integration and normalizes the heading angle (index 2) to [-π, π].
-
-    Args:
-        state: Current state vector [x, y, psi, ...]
-        xdot: State derivatives [dx/dt, dy/dt, dpsi/dt, ...]
-        dt: Integration timestep
-
-    Returns:
-        New state with normalized heading
-    """
-    # Debug print to see what's being passed
-    # print(f"  [integrator] state={state}, xdot={xdot}, dt={dt}")
-
-    x_new = state + xdot * dt
-
-    # Normalize heading at index 2 (psi)
-    if len(x_new) > 2:
-        x_new[2] = normalize_angle(x_new[2])
-
-    return x_new
-
-
 def heading_normalizing_integrator_with_self(*args):
     """
     Wrapper that handles both 3-arg and 4-arg calls.

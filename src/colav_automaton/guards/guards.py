@@ -1,6 +1,3 @@
-# !/usr/bin/python3
-# <---utf-8--->
-
 import numpy as np
 from hybrid_automaton import guard
 from hybrid_automaton.automaton_runtime_context import Context
@@ -19,10 +16,11 @@ def G11_and_G12_guard(ctx: Context) -> bool:
 
     Activates when obstacle is in path (G11) AND close enough (G12).
     Uses the unsafe-set API for dynamic obstacle computation.
+    Checks LOS to current target waypoint (top of stack).
 
     Args:
         ctx: Context containing continuous state [x, y, psi], auxiliary states,
-             control inputs, configuration (waypoint, obstacle(s), v, tp, Cs, dsafe),
+             control inputs, configuration (waypoints, obstacle(s), v, tp, Cs, dsafe),
              and clock
 
     Returns:
@@ -31,23 +29,19 @@ def G11_and_G12_guard(ctx: Context) -> bool:
     state = ctx.x.latest()
     cfg = ctx.cfg
 
-    # Convert single obstacle to list format for API compatibility
-    if 'obstacles' in cfg and cfg['obstacles']:
-        obstacles_list = cfg['obstacles']
-    else:
-        # Convert legacy single obstacle format to list
-        obstacles_list = [(cfg['obstacle_x'], cfg['obstacle_y'], 0.0, 0.0)]
+    # Get current target waypoint from stack (top of stack = LIFO)
+    target_x, target_y = cfg['waypoints'][-1]
 
     G11 = check_G11_dynamic(
         state[0], state[1],
-        cfg['waypoint_x'], cfg['waypoint_y'],
+        target_x, target_y,
         cfg['v'], cfg['tp'],
-        obstacles_list,
+        cfg['obstacles'],
         cfg['Cs']
     )
 
     G12 = check_G12_dynamic(
-        state[0], state[1], obstacles_list, cfg['dsafe'],
+        state[0], state[1], cfg['obstacles'], cfg['dsafe'],
         ship_v=cfg['v'], tp=cfg['tp'], Cs=cfg['Cs']
     )
 
@@ -95,12 +89,13 @@ def not_G11_guard(ctx: Context) -> bool:
     """
     Guard for S3 -> S1 transition: Resume waypoint reaching
 
-    Activates when LOS to waypoint is clear (G11).
+    Activates when LOS to current target waypoint is clear (not G11).
     Uses the unsafe-set API for dynamic obstacle computation.
+    Checks LOS to current target waypoint (top of stack).
 
     Args:
         ctx: Context containing continuous state [x, y, psi], auxiliary states,
-             control inputs, configuration (waypoint, obstacle(s), v, tp, Cs),
+             control inputs, configuration (waypoints, obstacle(s), v, tp, Cs),
              and clock
 
     Returns:
@@ -108,20 +103,16 @@ def not_G11_guard(ctx: Context) -> bool:
     """
     state = ctx.x.latest()
     cfg = ctx.cfg
-    
-    # Convert single obstacle to list format for API compatibility
-    if 'obstacles' in cfg and cfg['obstacles']:
-        obstacles_list = cfg['obstacles']
-    else:
-        # Convert legacy single obstacle format to list
-        obstacles_list = [(cfg['obstacle_x'], cfg['obstacle_y'], 0.0, 0.0)]
-    
+
+    # Get current target waypoint from stack (top of stack = LIFO)
+    target_x, target_y = cfg['waypoints'][-1]
+
     G11 = check_G11_dynamic(
         state[0], state[1],
-        cfg['waypoint_x'], cfg['waypoint_y'],
+        target_x, target_y,
         cfg['v'], cfg['tp'],
-        obstacles_list,
+        cfg['obstacles'],
         cfg['Cs']
     )
-    
+
     return not G11

@@ -22,12 +22,8 @@ sys.path.insert(0, str(SCRIPT_DIR.parent / 'src'))
 
 import os
 import matplotlib
-# Use WebAgg if no display, otherwise try TkAgg
-if not os.environ.get('DISPLAY'):
-    matplotlib.use('WebAgg')
-    print("No display found. Animation will open in web browser at http://127.0.0.1:8988")
-else:
-    matplotlib.use('TkAgg')
+# Use Agg backend for saving (non-interactive)
+matplotlib.use('Agg')
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Polygon as MplPolygon, FancyArrow
@@ -264,29 +260,32 @@ class RealtimeSimulation:
 
     def update_los_cone(self, pos_x, pos_y, psi):
         """Update the LOS cone visualization."""
-        if self.los_cone_patch is not None:
-            self.los_cone_patch.remove()
-            self.los_cone_patch = None
+        # TODO: LOS cone temporarily disabled - visualization doesn't match guard logic
+        return
 
-        if not self.show_los_cone:
-            return
-
-        # Create LOS cone polygon
-        try:
-            effective_tp = min(self.tp, 1.0)
-            los_cone = create_los_cone(pos_x, pos_y,
-                                       self.waypoint[0], self.waypoint[1],
-                                       self.v, effective_tp)
-            if los_cone is not None and los_cone.is_valid:
-                x, y = los_cone.exterior.xy
-                self.los_cone_patch = MplPolygon(
-                    list(zip(x, y)),
-                    color='cyan', alpha=0.2, zorder=3,
-                    label='LOS Cone'
-                )
-                self.ax.add_patch(self.los_cone_patch)
-        except Exception:
-            pass
+        # if self.los_cone_patch is not None:
+        #     self.los_cone_patch.remove()
+        #     self.los_cone_patch = None
+        #
+        # if not self.show_los_cone:
+        #     return
+        #
+        # # Create LOS cone polygon
+        # try:
+        #     effective_tp = min(self.tp, 1.0)
+        #     los_cone = create_los_cone(pos_x, pos_y,
+        #                                self.waypoint[0], self.waypoint[1],
+        #                                self.v, effective_tp)
+        #     if los_cone is not None and los_cone.is_valid:
+        #         x, y = los_cone.exterior.xy
+        #         self.los_cone_patch = MplPolygon(
+        #             list(zip(x, y)),
+        #             color='cyan', alpha=0.2, zorder=3,
+        #             label='LOS Cone'
+        #         )
+        #         self.ax.add_patch(self.los_cone_patch)
+        # except Exception:
+        #     pass
 
     def update_unsafe_sets(self, pos_x, pos_y, psi, obstacles):
         """Update unsafe set visualizations."""
@@ -510,11 +509,6 @@ class RealtimeSimulation:
         self.setup_automaton()
         self.run_simulation()
 
-        # Use Agg backend for saving
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-
         # Setup plot
         self.setup_plot()
 
@@ -546,24 +540,20 @@ class RealtimeSimulation:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Real-time COLAV Simulation")
+    parser = argparse.ArgumentParser(description="Real-time COLAV Simulation - Saves animations as GIF files")
     parser.add_argument('--scenario', '-s', type=int, default=1,
                         choices=list(range(1, 11)),
                         help='Scenario number (1-6)')
-    parser.add_argument('--speed', type=float, default=1.0,
-                        help='Speed multiplier (default: 1.0)')
     parser.add_argument('--no-los', action='store_true',
                         help='Hide LOS cone')
     parser.add_argument('--no-unsafe', action='store_true',
                         help='Hide unsafe sets')
-    parser.add_argument('--save', action='store_true',
-                        help='Save animation as GIF to output directory')
-    parser.add_argument('--save-all', action='store_true',
+    parser.add_argument('--all', action='store_true',
                         help='Save animations for all scenarios')
 
     args = parser.parse_args()
 
-    if args.save_all:
+    if args.all:
         # Save all scenarios
         print(f"Saving all scenarios to {OUTPUT_DIR}/")
         for scenario_id in SCENARIOS:
@@ -574,23 +564,14 @@ def main():
             )
             sim.save_animation()
         print(f"\nAll animations saved to {OUTPUT_DIR}/")
-    elif args.save:
-        # Save single scenario
+    else:
+        # Save single scenario (default behavior)
         sim = RealtimeSimulation(
             scenario_id=args.scenario,
             show_los_cone=not args.no_los,
             show_unsafe_sets=not args.no_unsafe,
         )
         sim.save_animation()
-    else:
-        # Run interactive animation
-        sim = RealtimeSimulation(
-            scenario_id=args.scenario,
-            speed_multiplier=args.speed,
-            show_los_cone=not args.no_los,
-            show_unsafe_sets=not args.no_unsafe,
-        )
-        sim.run()
 
 
 if __name__ == "__main__":

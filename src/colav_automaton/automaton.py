@@ -1,17 +1,20 @@
-from hybrid_automaton import Automaton, State, Transition
 from typing import List, Tuple, Optional
 
-from .guards import *
-from .resets import *
-from .invariants import *
-from .dynamics import *
-from .integration import heading_normalizing_integrator_with_self
+from hybrid_automaton import Automaton, State, Transition
+from colav_automaton.guards import G11_and_G12_guard, L1_bar_or_L2_bar_guard, not_G11_guard
+from colav_automaton.resets import reset_enter_avoidance, reset_reach_V1, reset_exit_avoidance
+from colav_automaton.invariants import is_goal_waypoint_invariant
+from colav_automaton.dynamics import (
+    S1_waypoint_reaching_dynamics,
+    S2_collision_avoidance_dynamics,
+    S3_constant_control_dynamics,
+)
+from colav_automaton.integration import heading_normalizing_integrator_with_self
+
 
 def ColavAutomaton(
     waypoint_x: float = 10.0,
     waypoint_y: float = 9.0,
-    obstacle_x: float = 5.0,
-    obstacle_y: float = 4.5,
     obstacles: Optional[List[Tuple[float, float, float, float]]] = None,
     Cs: float = 2.0,
     a: float = 1.67,
@@ -22,13 +25,14 @@ def ColavAutomaton(
 ) -> Automaton:
 
     delta = max(5.0, v * tp * 0.5)
-    dsafe = Cs + (v*2) * tp
+    dsafe = Cs + (v * 2) * tp
 
-    """state definitions"""
+    # States
     S1 = State(
         name="WAYPOINT_REACHING",
         initial=True,
         flow=S1_waypoint_reaching_dynamics,
+        invariants=[is_goal_waypoint_invariant],
         on_enter=lambda: print("S1: WAYPOINT_REACHING")
     )
 
@@ -44,45 +48,36 @@ def ColavAutomaton(
         on_enter=lambda: print("S3: CONSTANT_CONTROL")
     )
 
-    """transitions""" 
-
     # Transitions
     S1.add_transition(Transition(
-        name="avoid", 
-        to_state=S2, 
-        guards=[G11_and_G12_guard], 
+        name="avoid",
+        to_state=S2,
+        guards=[G11_and_G12_guard],
         reset=reset_enter_avoidance,
         priority=1
     ))
-    
+
     S2.add_transition(Transition(
-        name="hold", 
-        to_state=S3, 
-        guards=[L1_bar_or_L2_bar_guard], 
+        name="hold",
+        to_state=S3,
+        guards=[L1_bar_or_L2_bar_guard],
+        reset=reset_reach_V1,
         priority=1
     ))
-    
+
     S3.add_transition(Transition(
-        name="resume", 
-        to_state=S1, 
-        guards=[not_G11_guard], 
+        name="resume",
+        to_state=S1,
+        guards=[not_G11_guard],
         reset=reset_exit_avoidance,
         priority=1
     ))
 
-
     ha = Automaton(
         name="COLAV Automaton",
-        states=[
-            S1,
-            S2,
-            S3
-        ],
+        states=[S1, S2, S3],
         configuration={
-            'waypoint_x': waypoint_x,
-            'waypoint_y': waypoint_y,
-            'obstacle_x': obstacle_x,
-            'obstacle_y': obstacle_y,
+            'waypoints': [(waypoint_x, waypoint_y)],
             'obstacles': obstacles or [],
             'Cs': Cs,
             'dsafe': dsafe,
@@ -97,6 +92,3 @@ def ColavAutomaton(
     )
 
     return ha
-
-if __name__ == '__main__': 
-    automaton = ColavAutomaton(real_time_mode=False)

@@ -25,7 +25,7 @@ def generate_dynamic_unsafe_set_from_vertices(vertices: List[List[float]]) -> Op
     """
     if not vertices or len(vertices) < 3:
         return None
-    
+
     try:
         return Polygon(vertices)
     except Exception:
@@ -154,10 +154,10 @@ def get_unsafe_set_vertices(
     try:
         # Compute unsafe set
         convex_hull_vertices = create_unsafe_set(agent, obstacles_for_computation, float(distance_safety))
-        
+
         # Return vertices if we found any
         return convex_hull_vertices if convex_hull_vertices else None
-        
+
     except Exception as e:
         # API call failed - return None
         return None
@@ -246,10 +246,10 @@ def compute_unified_unsafe_region(
         )
         if vertices:
             all_vertices.extend(vertices)
-    
+
     if len(all_vertices) < 3:
         return None
-    
+
     # Create unified convex hull
     try:
         return generate_dynamic_unsafe_set_from_vertices(all_vertices)

@@ -1,7 +1,7 @@
 from hybrid_automaton import reset
 from hybrid_automaton.automaton_runtime_context import Context
 from colav_controllers import compute_v1
-from colav_automaton.unsafe_sets import get_unsafe_set_vertices
+from colav_controllers import get_unsafe_set_vertices
 
 
 @reset

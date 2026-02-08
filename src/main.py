@@ -8,7 +8,7 @@ from hybrid_automaton import Automaton
 from hybrid_automaton_runner import AutomatonRunner
 import asyncio
 import numpy as np
-from hybrid_automaton_evaluation.figure_generator import continuous_states_over_time_fig, auxiliary_states_over_time_fig, automaton_states_over_time, transitions_times_over_time_fig
+#from hybrid_automaton_evaluation.figure_generator import continuous_states_over_time_fig, auxiliary_states_over_time_fig, automaton_states_over_time, transitions_times_over_time_fig
 
 async def main():
     # Ship Navigation Automaton with prescribed-time control
@@ -48,9 +48,9 @@ async def main():
     print(results)
 
     # Generate plots - pass the specific lists, not the full results dict
-    continuous_states_over_time_fig(results['continuous_states'])
-    automaton_states_over_time(results['automaton_states'])
-    transitions_times_over_time_fig(results['transition_times'])
+    #continuous_states_over_time_fig(results['continuous_states'])
+    #automaton_states_over_time(results['automaton_states'])
+    #transitions_times_over_time_fig(results['transition_times'])
 
 # Run the event loop
 asyncio.run(main())

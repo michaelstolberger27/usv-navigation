@@ -34,7 +34,7 @@ from typing import List, Tuple, Optional
 from colav_automaton import ColavAutomaton
 from hybrid_automaton import Automaton
 from hybrid_automaton_runner import AutomatonRunner
-from colav_automaton.unsafe_sets import get_unsafe_set_vertices, create_los_cone
+from colav_controllers import get_unsafe_set_vertices, create_los_cone
 
 
 # Scenario configurations (matching simulate_colav.py)

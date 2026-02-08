@@ -158,7 +158,6 @@ class RealtimeSimulation:
         self.los_cone_patch = None
         self.obstacle_markers = []
         self.unsafe_set_patches = []
-        self.v1_marker = None
         self.state_text = None
         self.time_text = None
 
@@ -232,10 +231,6 @@ class RealtimeSimulation:
         # Initialize LOS cone patch
         self.los_cone_patch = None
 
-        # Initialize V1 marker
-        self.v1_marker, = self.ax.plot([], [], 'mD', markersize=12,
-                                        label='Virtual Waypoint V1', zorder=12)
-
         # State and time text
         self.state_text = self.ax.text(0.02, 0.98, '', transform=self.ax.transAxes,
                                         fontsize=14, verticalalignment='top',
@@ -253,8 +248,6 @@ class RealtimeSimulation:
                    markersize=10, label='Obstacle'),
             Line2D([0], [0], marker='*', color='w', markerfacecolor='red',
                    markersize=15, label='Waypoint'),
-            Line2D([0], [0], marker='D', color='w', markerfacecolor='magenta',
-                   markersize=10, label='Virtual Waypoint V1'),
         ]
         self.ax.legend(handles=legend_elements, loc='upper right')
 
@@ -376,31 +369,7 @@ class RealtimeSimulation:
                 print(f"Waypoint reached at t={self.sim_times[-1]:.2f}s")
                 break
 
-        # Store virtual waypoint history with timestamps
-        # Find when each S2 period started to associate V1s with times
-        self.virtual_waypoints = []
-        self.v1_times = []  # Time when each V1 was created
-        try:
-            cfg = self.automaton._definition.get_configuration()
-            if 'ca_controller' in cfg and cfg['ca_controller'] is not None:
-                self.virtual_waypoints = list(cfg['ca_controller'].virtual_waypoint_history)
-
-                # Find S2 entry times to associate with V1s
-                s2_entries = []
-                for i in range(1, len(self.sim_modes)):
-                    if self.sim_modes[i] == 'S2' and self.sim_modes[i-1] != 'S2':
-                        s2_entries.append(self.sim_times[i])
-
-                # Each V1 corresponds to an S2 entry
-                for i, v1 in enumerate(self.virtual_waypoints):
-                    if i < len(s2_entries):
-                        self.v1_times.append(s2_entries[i])
-                    else:
-                        self.v1_times.append(0)  # Fallback
-        except Exception:
-            pass
-
-        print(f"Simulation complete: {len(self.sim_states)} frames, {len(self.virtual_waypoints)} virtual waypoints")
+        print(f"Simulation complete: {len(self.sim_states)} frames")
 
     def animate(self, frame):
         """Animation update function."""
@@ -436,18 +405,6 @@ class RealtimeSimulation:
         # Update unsafe sets
         self.update_unsafe_sets(x, y, psi, obstacles)
 
-        # Update V1 marker - only show V1s that have been created by current time
-        if self.virtual_waypoints and self.v1_times:
-            v1_x = []
-            v1_y = []
-            for i, (vw, v1_time) in enumerate(zip(self.virtual_waypoints, self.v1_times)):
-                if t >= v1_time:  # Only show V1 after it was created
-                    v1_x.append(vw[0])
-                    v1_y.append(vw[1])
-            self.v1_marker.set_data(v1_x, v1_y)
-        else:
-            self.v1_marker.set_data([], [])
-
         # Update state text with color coding
         state_colors = {'S1': 'blue', 'S2': 'red', 'S3': 'orange'}
         state_names = {
@@ -467,7 +424,7 @@ class RealtimeSimulation:
         if dist_to_wp < 0.5:
             self.time_text.set_text(f't = {t:.2f}s (ARRIVED)')
 
-        return [self.trajectory_line, self.vessel_marker, self.v1_marker,
+        return [self.trajectory_line, self.vessel_marker,
                 self.state_text, self.time_text]
 
     def run(self):

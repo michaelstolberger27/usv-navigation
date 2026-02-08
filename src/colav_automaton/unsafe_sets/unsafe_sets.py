@@ -216,33 +216,36 @@ def compute_unified_unsafe_region(
     pos_x: float,
     pos_y: float,
     obstacles_list: List[Tuple[float, float, float, float]],
-    Cs: float
+    Cs: float,
+    ship_psi: float = 0.0,
+    ship_v: float = 12.0
 ) -> Optional[Polygon]:
     """
     Compute unified unsafe region from all obstacles for G11 guard checks.
 
-    Uses current obstacle positions only (no swept regions) to avoid
-    false positives when the ship has already passed an obstacle.
+    Uses swept regions to account for obstacle motion, ensuring the unsafe
+    set covers where dynamic obstacles will be during the maneuver window.
 
     Args:
         pos_x, pos_y: Ship position
         obstacles_list: List of (ox, oy, ov, o_psi) tuples
         Cs: Safety radius
+        ship_psi: Ship heading (rad)
+        ship_v: Ship velocity (m/s)
 
     Returns:
         Polygon: Unified unsafe set, or None if no obstacles
     """
-    if not obstacles_list or len(obstacles_list) < 1:
+    if not obstacles_list:
         return None
 
-    # Collect vertices from all obstacles (using current positions only)
     all_vertices = []
 
     for ox, oy, ov, o_psi in obstacles_list:
-        # Get unsafe set for this obstacle - NO swept region for guard checks
         vertices = get_unsafe_set_vertices(
             pos_x, pos_y, [(ox, oy, ov, o_psi)], Cs,
-            use_swept_region=False
+            ship_psi=ship_psi, ship_v=ship_v,
+            use_swept_region=True
         )
         if vertices:
             all_vertices.extend(vertices)
@@ -250,7 +253,6 @@ def compute_unified_unsafe_region(
     if len(all_vertices) < 3:
         return None
 
-    # Create unified convex hull
     try:
         return generate_dynamic_unsafe_set_from_vertices(all_vertices)
     except Exception:

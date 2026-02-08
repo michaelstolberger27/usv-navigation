@@ -50,7 +50,7 @@ The collision avoidance system operates as a **hybrid automaton** with three sta
 ### Guard Conditions
 
 - **G11**: Line-of-sight (LOS) to waypoint intersects unsafe regions (collision cone check)
-- **G12**: At least one obstacle poses collision threat (TCPA ≤ tp AND DCPA ≤ Cs)
+- **G12**: At least one obstacle poses collision threat (TCPA ≤ dsafe/v AND DCPA ≤ dsafe)
 - **L1**: Vessel has reached virtual waypoint V1 with proper heading alignment
 - **L2**: Virtual waypoint V1 is ahead of the vessel (within ±120° of heading)
 
@@ -75,18 +75,17 @@ This system relies on the following custom packages (ensure they are installed o
 
 - `hybrid_automaton`: Hybrid automaton framework with state, transition, and decorator support
 - `hybrid_automaton_runner`: Simulation orchestration and data collection
-- `colav_controllers`: Prescribed-time and collision avoidance controllers
-- `colav_unsafe_set`: Unsafe set geometry, DCPA/TCPA metrics, and obstacle prediction
+- `colav_controllers`: Prescribed-time controllers, unsafe set geometry, LOS cone, V1 computation, and collision threat detection
 
-### Installation
+### Setup
 
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd usv-navigation
 
-# Install in development mode
-pip install -e .
+# Ensure src/ is on your Python path
+export PYTHONPATH="$PYTHONPATH:$(pwd)/src"
 ```
 
 ## Quick Start
@@ -127,15 +126,17 @@ asyncio.run(main())
 
 ### Running Examples
 
-#### Batch Simulation
+#### Real-Time Animated Simulation
 
-Run predefined scenarios with trajectory visualization:
+Run predefined scenarios and save animations as GIFs:
 
 ```bash
 cd examples
-python simulate_colav.py                    # Run all scenarios
-python simulate_colav.py --scenario 1       # Run specific scenario
-python simulate_colav.py --interactive      # Custom scenario setup
+python realtime_simulation.py                      # Default scenario (1)
+python realtime_simulation.py --scenario 3         # Specific scenario
+python realtime_simulation.py --all                # Run all scenarios
+python realtime_simulation.py --no-los             # Hide LOS cone overlay
+python realtime_simulation.py --no-unsafe          # Hide unsafe region overlay
 ```
 
 **Available Scenarios:**
@@ -143,25 +144,7 @@ python simulate_colav.py --interactive      # Custom scenario setup
 2. Multiple Obstacles (Crowded Environment)
 3. Head-On Encounter
 4. Crossing Encounter
-
-#### Real-Time Animated Simulation
-
-View live animation with dynamic visualization:
-
-```bash
-cd examples
-python realtime_simulation.py                      # Default scenario
-python realtime_simulation.py --scenario 3         # Specific scenario
-python realtime_simulation.py --speed 2.0          # 2x speed multiplier
-python realtime_simulation.py --save --save-all    # Save animations as GIFs
-```
-
-**Available Scenarios:**
-1. Single Stationary Obstacle
-2. Multiple Obstacles
-3. Head-On Encounter
-4. Crossing Encounter
-5. Overtaking Scenario
+5. Overtaking Encounter
 6. Multi-Vessel Crossing
 
 ## Project Structure
@@ -171,25 +154,19 @@ usv-navigation/
 ├── src/
 │   ├── main.py                      # Basic example with plotting
 │   └── colav_automaton/
-│       ├── __init__.py              # Package exports
-│       ├── __about__.py             # Version information
+│       ├── __init__.py              # Package exports & version
 │       ├── automaton.py             # Main automaton factory
 │       ├── dynamics/
-│       │   └── dynamics.py          # State flow dynamics (S1, S2, S3)
+│       │   └── dynamics.py          # State flow dynamics (shared S1/S2, S3)
 │       ├── guards/
 │       │   ├── guards.py            # Transition guards (G11∧G12, ¬L1∨¬L2, ¬G11)
-│       │   └── conditions.py        # Collision detection logic
+│       │   └── conditions.py        # Collision detection logic (G11, G12, L1, L2)
 │       ├── resets/
-│       │   └── resets.py            # State reset handlers
-│       ├── invariants/
-│       │   └── invariants.py        # State invariant conditions
-│       ├── integration/
-│       │   └── integration.py       # Numerical integration with heading normalization
-│       └── unsafe_sets/
-│           └── unsafe_sets.py       # Convex hull & LOS cone geometry
+│       │   └── resets.py            # State reset handlers (V1 computation & stack mgmt)
+│       └── invariants/
+│           └── invariants.py        # State invariant conditions
 ├── examples/
-│   ├── simulate_colav.py            # Batch simulation with visualization
-│   ├── realtime_simulation.py       # Live animated simulation
+│   ├── realtime_simulation.py       # Real-time animated simulation with GIF export
 │   └── output/                      # Generated GIF animations
 └── README.md
 ```
@@ -220,29 +197,29 @@ ColavAutomaton(
 
 ### State Dynamics ([dynamics/dynamics.py](src/colav_automaton/dynamics/dynamics.py))
 
-Three continuous dynamics functions define vessel motion in each state:
+Two continuous dynamics functions define vessel motion:
 
-- **`S1_waypoint_reaching_dynamics()`**: Prescribed-time control toward waypoint
-- **`S2_collision_avoidance_dynamics()`**: Navigate to virtual waypoint V1 using unsafe set geometry
-- **`S3_constant_control_dynamics()`**: Maintain last control command
+- **`waypoint_navigation_dynamics()`**: Shared by S1 and S2 — uses prescribed-time control to navigate toward the top of the waypoints stack (goal waypoint in S1, virtual waypoint V1 in S2)
+- **`constant_control_dynamics()`**: Used by S3 — maintains current heading with zero turning rate (straight-line motion)
 
 ### Guard Conditions ([guards/guards.py](src/colav_automaton/guards/guards.py), [guards/conditions.py](src/colav_automaton/guards/conditions.py))
 
-Sophisticated collision detection using:
+Collision detection and transition logic using functions from `colav_controllers`:
 
-- **Line-of-Sight (LOS) Cone**: Checks if path intersects unsafe regions
-- **TCPA/DCPA Metrics**: Time and distance to closest point of approach
-- **Heading Alignment**: Ensures proper orientation before state transitions
-- **Multi-Obstacle Unified Hull**: Aggregates collision threats into single convex region
+- **Line-of-Sight (LOS) Cone**: Checks if path intersects unsafe regions via `create_los_cone()` and `compute_unified_unsafe_region()`
+- **TCPA/DCPA Metrics**: Time and distance to closest point of approach via `check_collision_threat()`
+- **Heading Alignment**: Ensures proper orientation before state transitions (~3° threshold)
+- **V1 Ahead Check**: Verifies virtual waypoint is within ±120° of heading before transitioning
 
-### Unsafe Set Geometry ([unsafe_sets/unsafe_sets.py](src/colav_automaton/unsafe_sets/unsafe_sets.py))
+### Unsafe Set Geometry (from `colav_controllers`)
 
-Computes collision-free regions using:
+The geometric collision detection functions are provided by the external `colav_controllers` package:
 
 - **`get_unsafe_set_vertices()`**: Generates convex hull of buffered obstacle regions
 - **`create_los_cone()`**: Forms cone from vessel position toward waypoint
 - **`compute_unified_unsafe_region()`**: Aggregates multi-obstacle unsafe sets
-- **Dynamic Obstacle Prediction**: Projects future positions along trajectories
+- **`compute_v1()`**: Computes virtual waypoint V1 (starboard vertex of unsafe hull)
+- **`check_collision_threat()`**: DCPA/TCPA-based threat assessment
 
 ## Technical Details
 
@@ -263,26 +240,14 @@ x = [x, y, psi]
 - Caps cone at 1 second to prevent false positives for passed obstacles
 
 **G12 (Threat Assessment):**
-- For each obstacle: `if (TCPA ≤ tp) AND (DCPA ≤ Cs): threat = True`
-- Uses `calculate_obstacle_metrics_for_agent()` from `colav_unsafe_set`
-- Fallback to simple distance check if API unavailable
+- For each obstacle: `if (TCPA ≤ dsafe/v) AND (DCPA ≤ dsafe): threat = True`
+- Uses `check_collision_threat()` from `colav_controllers`
+- Where `dsafe = Cs + (v * 2) * tp` provides sufficient lead time for maneuvering
 
 **Virtual Waypoint V1:**
 - Computed as starboard vertex of unsafe convex hull
 - Accounts for swept region when obstacles are moving
 - Buffer distance `v1_buffer` adds extra clearance
-
-### Numerical Integration ([integration/integration.py](src/colav_automaton/integration/integration.py))
-
-Custom integrator with automatic heading normalization:
-
-```python
-heading_normalizing_integrator(x, xdot, dt)
-```
-
-- Euler integration: `x_new = x + xdot * dt`
-- Normalizes heading (index 2) to [-π, π] after each step
-- Prevents angle unwrap issues during simulation
 
 ## Visualization
 
@@ -402,5 +367,5 @@ This implementation is based on:
 This project uses the following frameworks:
 
 - `hybrid_automaton`: Hybrid system modeling framework
-- `colav_controllers`: Maritime collision avoidance controllers
-- `colav_unsafe_set`: Geometric collision detection library
+- `hybrid_automaton_runner`: Simulation orchestration and data collection
+- `colav_controllers`: Maritime collision avoidance controllers and geometric collision detection

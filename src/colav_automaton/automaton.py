@@ -5,11 +5,11 @@ from colav_automaton.guards import G11_and_G12_guard, L1_bar_or_L2_bar_guard, no
 from colav_automaton.resets import reset_enter_avoidance, reset_reach_V1, reset_exit_avoidance
 from colav_automaton.invariants import is_goal_waypoint_invariant
 from colav_automaton.dynamics import (
-    S1_waypoint_reaching_dynamics,
-    S2_collision_avoidance_dynamics,
-    S3_constant_control_dynamics,
+    waypoint_navigation_dynamics,
+    constant_control_dynamics,
 )
 from colav_automaton.integration import heading_normalizing_integrator_with_self
+from colav_controllers import PrescribedTimeController
 
 
 def ColavAutomaton(
@@ -31,20 +31,20 @@ def ColavAutomaton(
     S1 = State(
         name="WAYPOINT_REACHING",
         initial=True,
-        flow=S1_waypoint_reaching_dynamics,
+        flow=waypoint_navigation_dynamics,
         invariants=[is_goal_waypoint_invariant],
         on_enter=lambda: print("S1: WAYPOINT_REACHING")
     )
 
     S2 = State(
         name="COLLISION_AVOIDANCE",
-        flow=S2_collision_avoidance_dynamics,
+        flow=waypoint_navigation_dynamics,
         on_enter=lambda: print("S2: COLLISION_AVOIDANCE")
     )
 
     S3 = State(
         name="CONSTANT_CONTROL",
-        flow=S3_constant_control_dynamics,
+        flow=constant_control_dynamics,
         on_enter=lambda: print("S3: CONSTANT_CONTROL")
     )
 
@@ -86,7 +86,8 @@ def ColavAutomaton(
             'v': v,
             'eta': eta,
             'tp': tp,
-            'v1_buffer': v1_buffer
+            'v1_buffer': v1_buffer,
+            'pt_controller': PrescribedTimeController(a, v, eta, tp)
         },
         integration_function=heading_normalizing_integrator_with_self
     )

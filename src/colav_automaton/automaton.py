@@ -8,7 +8,6 @@ from colav_automaton.dynamics import (
     waypoint_navigation_dynamics,
     constant_control_dynamics,
 )
-from colav_automaton.integration import heading_normalizing_integrator_with_self
 from colav_controllers import PrescribedTimeController
 
 
@@ -88,8 +87,7 @@ def ColavAutomaton(
             'tp': tp,
             'v1_buffer': v1_buffer,
             'pt_controller': PrescribedTimeController(a, v, eta, tp)
-        },
-        integration_function=heading_normalizing_integrator_with_self
+        }
     )
 
     return ha

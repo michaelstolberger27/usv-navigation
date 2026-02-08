@@ -4,7 +4,6 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__)))
 
 from colav_automaton import ColavAutomaton
-from colav_automaton.integration import normalize_heading_in_results # For visualisation
 from hybrid_automaton import Automaton
 from hybrid_automaton_runner import AutomatonRunner
 import asyncio
@@ -45,9 +44,6 @@ async def main():
     )
     
     results = ha_runner.get_results()
-
-    # Normalize heading angles to [-π, π] for visualization
-    results = normalize_heading_in_results(results)
 
     print(results)
 

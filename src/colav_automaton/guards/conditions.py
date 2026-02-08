@@ -7,9 +7,7 @@ when collision avoidance is needed and when avoidance maneuvers complete.
 
 from typing import List, Tuple
 import numpy as np
-from colav_unsafe_set import calculate_obstacle_metrics_for_agent
-from colav_unsafe_set.objects.objects import Agent, DynamicObstacle
-from colav_automaton.unsafe_sets import create_los_cone, compute_unified_unsafe_region
+from colav_controllers import create_los_cone, compute_unified_unsafe_region, check_collision_threat
 
 # Configuration constants for guard conditions
 HEADING_ALIGNMENT_THRESHOLD = np.pi / 60  # ~3 degrees
@@ -103,43 +101,10 @@ def G12_check(
     Raises:
         ValueError: If any velocity or distance parameter is invalid
     """
-    if not obstacles_list:
-        return False
-
     if ship_v <= 0 or Cs <= 0 or dsafe <= 0:
         raise ValueError(f"Invalid parameters: ship_v={ship_v}, Cs={Cs}, dsafe={dsafe} (all must be > 0)")
 
-    # Convert heading to quaternion (qx, qy, qz, qw) with Z-axis rotation only.
-    # Uses half-angle formula: qz = sin(psi/2), qw = cos(psi/2), with qx=qy=0 since
-    # rotation is about the Z-axis (yaw). This format is required by the Agent/DynamicObstacle API.
-    agent = Agent(
-        position=(pos_x, pos_y, 0.0),
-        orientation=(0.0, 0.0, np.sin(psi / 2), np.cos(psi / 2)),
-        velocity=ship_v,
-        yaw_rate=0.0,
-        safety_radius=Cs
-    )
-
-    dynamic_obstacles = [
-        DynamicObstacle(
-            tag=f"obs_{i}",
-            position=(ox, oy, 0.0),
-            orientation=(0.0, 0.0, np.sin(o_psi / 2), np.cos(o_psi / 2)),
-            velocity=ov,
-            yaw_rate=0.0,
-            safety_radius=Cs
-        )
-        for i, (ox, oy, ov, o_psi) in enumerate(obstacles_list)
-    ]
-
-    results = calculate_obstacle_metrics_for_agent(agent, dynamic_obstacles)
-    tcpa_threshold = dsafe / ship_v
-
-    for result in results:
-        if result.tcpa <= tcpa_threshold and result.dcpa <= dsafe:
-            return True
-
-    return False
+    return check_collision_threat(pos_x, pos_y, psi, obstacles_list, ship_v, Cs, dsafe)
 
 
 def L1_check(pos_x: float, pos_y: float, v1_x: float, v1_y: float, delta: float,

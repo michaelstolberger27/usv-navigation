@@ -1,6 +1,7 @@
 from typing import List, Tuple, Optional
 
-from hybrid_automaton import Automaton, State, Transition
+from hybrid_automaton import Automaton
+from hybrid_automaton.definition import State, Transition
 from colav_automaton.guards import G11_and_G12_guard, L1_bar_or_L2_bar_guard, not_G11_guard
 from colav_automaton.resets import reset_enter_avoidance, reset_reach_V1, reset_exit_avoidance
 from colav_automaton.invariants import is_goal_waypoint_invariant
@@ -8,9 +9,6 @@ from colav_automaton.dynamics import (
     waypoint_navigation_dynamics,
     constant_control_dynamics,
 )
-from colav_controllers import PrescribedTimeController
-
-
 def ColavAutomaton(
     waypoint_x: float = 10.0,
     waypoint_y: float = 9.0,
@@ -74,6 +72,7 @@ def ColavAutomaton(
 
     ha = Automaton(
         name="COLAV Automaton",
+        version="0.0.1",
         states=[S1, S2, S3],
         configuration={
             'waypoints': [(waypoint_x, waypoint_y)],
@@ -85,8 +84,7 @@ def ColavAutomaton(
             'v': v,
             'eta': eta,
             'tp': tp,
-            'v1_buffer': v1_buffer,
-            'pt_controller': PrescribedTimeController(a, v, eta, tp)
+            'v1_buffer': v1_buffer
         }
     )
 

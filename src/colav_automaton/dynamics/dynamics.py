@@ -1,38 +1,50 @@
 import numpy as np
-from hybrid_automaton.automaton_annotations import continuous_dynamics
-from hybrid_automaton.automaton_runtime_context import Context
+from hybrid_automaton.definition import continuous_dynamics
+from hybrid_automaton import RuntimeContext
 
 
 @continuous_dynamics
-def waypoint_navigation_dynamics(ctx: Context):
+def waypoint_navigation_dynamics(ctx: RuntimeContext):
     """
-    Shared dynamics for S1 and S2: navigate to top of waypoints stack.
+    Vessel plant dynamics for S1 and S2.
 
-    In S1 the target is the goal waypoint. In S2 the target is V1
-    (pushed onto the stack by the S1->S2 reset).
+    Reads the control input u from the control input states (computed
+    asynchronously by the prescribed-time heading controller) and returns
+    the continuous dynamics of the vessel:
 
-    Uses prescribed-time control to guarantee heading convergence to LOS.
+        dx/dt   = v * cos(psi)
+        dy/dt   = v * sin(psi)
+        dpsi/dt = -a * psi + a * u
     """
-    state = ctx.x.latest()
-    cfg = ctx.cfg
-    t = ctx.clk.get_time_elapsed_since_transition()
+    state = ctx.continuous_state.latest()
+    cfg = ctx.configuration
+    psi = state[2]
+    a = cfg['a']
+    v = cfg['v']
+    u = float(ctx.control_input_states['u'].latest())
 
-    target_x, target_y = cfg['waypoints'][-1]
-
-    return cfg['pt_controller'].compute_dynamics(
-        t, state[0], state[1], state[2],
-        target_x, target_y
-    )
+    return np.array([
+        v * np.cos(psi),
+        v * np.sin(psi),
+        -a * psi + a * u
+    ])
 
 
 @continuous_dynamics
-def constant_control_dynamics(ctx: Context):
+def constant_control_dynamics(ctx: RuntimeContext):
     """
     S3: Constant heading - maintain straight-line motion after avoidance.
 
     Holds the current heading with zero turning rate until LOS is clear.
+        dx/dt   = v * cos(psi)
+        dy/dt   = v * sin(psi)
+        dpsi/dt = 0
     """
-    v = ctx.cfg['v']
-    psi = ctx.x.latest()[2]
+    v = ctx.configuration['v']
+    psi = ctx.continuous_state.latest()[2]
 
-    return np.array([v * np.cos(psi), v * np.sin(psi), 0.0])
+    return np.array([
+        v * np.cos(psi), 
+        v * np.sin(psi), 
+        0.0
+    ])

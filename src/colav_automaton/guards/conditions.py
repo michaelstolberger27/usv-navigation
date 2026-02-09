@@ -7,7 +7,7 @@ when collision avoidance is needed and when avoidance maneuvers complete.
 
 from typing import List, Tuple
 import numpy as np
-from colav_controllers import create_los_cone, compute_unified_unsafe_region, check_collision_threat
+from colav_automaton.controllers import create_los_cone, compute_unified_unsafe_region, check_collision_threat
 
 # Configuration constants for guard conditions
 HEADING_ALIGNMENT_THRESHOLD = np.pi / 60  # ~3 degrees

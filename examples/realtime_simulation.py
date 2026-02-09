@@ -13,6 +13,9 @@ Animates the simulation showing:
 
 import sys
 import asyncio
+import csv
+import json
+import re
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -32,9 +35,8 @@ from matplotlib.lines import Line2D
 from typing import List, Tuple, Optional
 
 from colav_automaton import ColavAutomaton
-from hybrid_automaton import Automaton
-from hybrid_automaton_runner import AutomatonRunner
-from colav_controllers import get_unsafe_set_vertices, create_los_cone
+from hybrid_automaton import Automaton, RunResult
+from colav_automaton.controllers import get_unsafe_set_vertices, create_los_cone, HeadingControlProvider
 
 
 # Scenario configurations (matching simulate_colav.py)
@@ -147,7 +149,6 @@ class RealtimeSimulation:
         self.sim_v1 = []
         self.frame_idx = 0
         self.automaton = None
-        self.runner = None
 
         # Animation objects
         self.fig = None
@@ -172,7 +173,6 @@ class RealtimeSimulation:
             v=self.v,
             v1_buffer=self.v1_buffer,
         )
-        self.runner = AutomatonRunner(self.automaton, sampling_rate=0.01)
 
     def get_current_obstacles(self, t: float) -> List[Tuple[float, float, float, float]]:
         """Get obstacle positions at time t (accounting for motion)."""
@@ -256,30 +256,6 @@ class RealtimeSimulation:
         # TODO: LOS cone temporarily disabled - visualization doesn't match guard logic
         return
 
-        # if self.los_cone_patch is not None:
-        #     self.los_cone_patch.remove()
-        #     self.los_cone_patch = None
-        #
-        # if not self.show_los_cone:
-        #     return
-        #
-        # # Create LOS cone polygon
-        # try:
-        #     effective_tp = min(self.tp, 1.0)
-        #     los_cone = create_los_cone(pos_x, pos_y,
-        #                                self.waypoint[0], self.waypoint[1],
-        #                                self.v, effective_tp)
-        #     if los_cone is not None and los_cone.is_valid:
-        #         x, y = los_cone.exterior.xy
-        #         self.los_cone_patch = MplPolygon(
-        #             list(zip(x, y)),
-        #             color='cyan', alpha=0.2, zorder=3,
-        #             label='LOS Cone'
-        #         )
-        #         self.ax.add_patch(self.los_cone_patch)
-        # except Exception:
-        #     pass
-
     def update_unsafe_sets(self, pos_x, pos_y, psi, obstacles):
         """Update unsafe set visualizations."""
         # Remove old patches
@@ -327,38 +303,64 @@ class RealtimeSimulation:
         """Run the full simulation and store results."""
         print("Running simulation...")
 
-        results = asyncio.run(self.runner.run(
-            x0=self.initial_state,
-            duration=self.duration,
-            dt=0.01,  # Match simulate_colav.py
-            collect_continuous=True,
-            collect_automaton=True,
+        run_output_dir = str(OUTPUT_DIR / f"run_scenario{self.scenario_id}")
+
+        controller = HeadingControlProvider(self.automaton)
+
+        results: RunResult = asyncio.run(self.automaton.activate(
+            initial_continuous_state=np.array(self.initial_state, dtype=float),
+            initial_control_input_states={'u': np.array([0.0])},
+            enable_real_time_mode=False,
+            enable_self_integration=True,
+            delta_time=0.01,
+            timeout_sec=self.duration,
+            continuous_state_sampler_enabled=True,
+            continuous_state_sampler_rate=100,
+            control_states_provider=controller,
+            control_states_provision_rate=100,
+            output_dir=run_output_dir,
         ))
 
-        # Extract trajectory data - format is [[time, state], ...]
-        continuous = results.get('continuous_states', [])
-        automaton = results.get('automaton_states', [])
+        # Read continuous state trajectory from sampler CSV
+        csv_path = os.path.join(run_output_dir, "continuous_state.csv")
+        with open(csv_path, 'r') as f:
+            reader = csv.reader(f)
+            next(reader)  # Skip header
+            for row in reader:
+                t = float(row[0])
+                state = json.loads(row[1])
+                self.sim_times.append(t)
+                self.sim_states.append(state)
 
-        # Extract times and states from continuous data
-        self.sim_times = [entry[0] for entry in continuous]
-        self.sim_states = [entry[1] for entry in continuous]
+        # Parse mode transitions from temporal log
+        log_path = os.path.join(run_output_dir, "temporal_automaton.log")
+        transitions = []
+        with open(log_path, 'r') as f:
+            for line in f:
+                match = re.search(
+                    r"\[INFO\]\s*\[(\d+\.?\d*)\].*\[Transition\]\s*'(\w+)'\s*--\[.*\]-->\s*'(\w+)'",
+                    line
+                )
+                if match:
+                    t = float(match.group(1))
+                    to_state = match.group(3)
+                    transitions.append((t, to_state))
 
-        # Extract modes from automaton data
+        # Build mode list for each timestep
         mode_map = {
             'WAYPOINT_REACHING': 'S1',
             'COLLISION_AVOIDANCE': 'S2',
             'CONSTANT_CONTROL': 'S3',
         }
-        self.sim_modes = []
-        for entry in automaton:
-            mode_name = entry[1] if len(entry) > 1 else 'WAYPOINT_REACHING'
-            self.sim_modes.append(mode_map.get(mode_name, 'S1'))
+        current_mode = 'WAYPOINT_REACHING'
+        trans_idx = 0
+        for t in self.sim_times:
+            while trans_idx < len(transitions) and transitions[trans_idx][0] <= t:
+                current_mode = transitions[trans_idx][1]
+                trans_idx += 1
+            self.sim_modes.append(mode_map.get(current_mode, 'S1'))
 
-        # Pad modes to match trajectory length if needed
-        while len(self.sim_modes) < len(self.sim_states):
-            self.sim_modes.append(self.sim_modes[-1] if self.sim_modes else 'S1')
-
-        # Truncate simulation when waypoint is reached (like simulate_colav.py)
+        # Truncate simulation when waypoint is reached
         waypoint_threshold = 0.5
         for i, state in enumerate(self.sim_states):
             dist = np.sqrt((state[0] - self.waypoint[0])**2 + (state[1] - self.waypoint[1])**2)
@@ -369,23 +371,40 @@ class RealtimeSimulation:
                 print(f"Waypoint reached at t={self.sim_times[-1]:.2f}s")
                 break
 
-        print(f"Simulation complete: {len(self.sim_states)} frames")
+        print(f"Simulation complete: {len(self.sim_states)} samples")
+
+        # Subsample for animation: target 30fps real-time playback
+        self.anim_fps = 30
+        sim_duration = self.sim_times[-1] - self.sim_times[0] if len(self.sim_times) > 1 else 1.0
+        target_frames = max(2, int(sim_duration * self.anim_fps))
+        n = len(self.sim_states)
+        if n > target_frames:
+            step = n / target_frames
+            indices = [int(i * step) for i in range(target_frames)]
+            if indices[-1] != n - 1:
+                indices.append(n - 1)
+            self.anim_indices = indices
+        else:
+            self.anim_indices = list(range(n))
+
+        print(f"Animation: {len(self.anim_indices)} frames at {self.anim_fps}fps ({sim_duration:.1f}s real-time)")
 
     def animate(self, frame):
         """Animation update function."""
-        if frame >= len(self.sim_states):
+        if frame >= len(self.anim_indices):
             return []
 
-        state = self.sim_states[frame]
-        t = self.sim_times[frame] if frame < len(self.sim_times) else 0
-        mode = self.sim_modes[frame] if frame < len(self.sim_modes) else 'S1'
+        idx = self.anim_indices[frame]
+        state = self.sim_states[idx]
+        t = self.sim_times[idx] if idx < len(self.sim_times) else 0
+        mode = self.sim_modes[idx] if idx < len(self.sim_modes) else 'S1'
 
         x, y, psi = state[0], state[1], state[2]
         obstacles = self.get_current_obstacles(t)
 
-        # Update trajectory (show path up to current frame)
-        traj_x = [s[0] for s in self.sim_states[:frame+1]]
-        traj_y = [s[1] for s in self.sim_states[:frame+1]]
+        # Update trajectory (show full path up to current simulation index)
+        traj_x = [s[0] for s in self.sim_states[:idx+1]]
+        traj_y = [s[1] for s in self.sim_states[:idx+1]]
         self.trajectory_line.set_data(traj_x, traj_y)
 
         # Update vessel position
@@ -440,17 +459,13 @@ class RealtimeSimulation:
         # Setup plot after simulation
         self.setup_plot()
 
-        # Calculate animation parameters
-        # Frame interval in ms (base 50fps, adjusted by speed)
-        base_interval = 20  # 20ms = 50fps
-        interval = int(base_interval / self.speed_multiplier)
-        interval = max(10, min(interval, 200))  # Clamp between 10-200ms
-
-        num_frames = len(self.sim_states)
+        # Frame interval for real-time playback, adjusted by speed multiplier
+        interval = int(1000 / (self.anim_fps * self.speed_multiplier))
+        interval = max(10, min(interval, 200))
 
         self.anim = FuncAnimation(
             self.fig, self.animate,
-            frames=num_frames,
+            frames=len(self.anim_indices),
             interval=interval,
             blit=False,
             repeat=True
@@ -469,14 +484,12 @@ class RealtimeSimulation:
         # Setup plot
         self.setup_plot()
 
-        # Calculate animation parameters
-        interval = 50  # 50ms per frame for GIF
-
-        num_frames = len(self.sim_states)
+        # Animation at real-time speed
+        interval = int(1000 / self.anim_fps)
 
         self.anim = FuncAnimation(
             self.fig, self.animate,
-            frames=num_frames,
+            frames=len(self.anim_indices),
             interval=interval,
             blit=False,
             repeat=False
@@ -489,7 +502,7 @@ class RealtimeSimulation:
 
         # Save as GIF
         print(f"Saving to: {output_path}")
-        self.anim.save(str(output_path), writer='pillow', fps=20)
+        self.anim.save(str(output_path), writer='pillow', fps=self.anim_fps)
         print(f"Saved: {output_path}")
         plt.close(self.fig)
 

@@ -4,11 +4,10 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__)))
 
 from colav_automaton import ColavAutomaton
-from hybrid_automaton import Automaton
-from hybrid_automaton_runner import AutomatonRunner
+from colav_automaton.controllers import HeadingControlProvider
+from hybrid_automaton import Automaton, RunResult
 import asyncio
 import numpy as np
-#from hybrid_automaton_evaluation.figure_generator import continuous_states_over_time_fig, auxiliary_states_over_time_fig, automaton_states_over_time, transitions_times_over_time_fig
 
 async def main():
     # Ship Navigation Automaton with prescribed-time control
@@ -22,35 +21,30 @@ async def main():
         eta=3.5,              # Controller gain
         tp=1.0                # Prescribed time
     )
-    
+
     # Initial state: [x, y, psi] -
     x0 = np.array([0.0, 0.0, 0.0], dtype=float)  # Start at origin, heading 0 rad
-    
-    # set to None or empty dict
-    aux_t0 = {}
 
     print(str(ha))
     print(repr(ha))
-    
-    ha_runner: AutomatonRunner = AutomatonRunner(ha, sampling_rate=0.001)
-    await ha_runner.run(
-        x0=x0,
-        aux_x0=aux_t0,
-        duration=15.0,
-        real_time_mode=False,
-        integrate=True,
-        dt=0.1,
-        collect_control=False
+
+    # Controller runs asynchronously to the automaton
+    controller = HeadingControlProvider(ha)
+
+    results: RunResult = await ha.activate(
+        initial_continuous_state=x0,
+        initial_control_input_states={'u': np.array([0.0])},
+        enable_real_time_mode=False,
+        enable_self_integration=True,
+        delta_time=0.1,
+        timeout_sec=15.0,
+        continuous_state_sampler_enabled=True,
+        continuous_state_sampler_rate=100,
+        control_states_provider=controller,
+        control_states_provision_rate=100,
     )
-    
-    results = ha_runner.get_results()
 
     print(results)
-
-    # Generate plots - pass the specific lists, not the full results dict
-    #continuous_states_over_time_fig(results['continuous_states'])
-    #automaton_states_over_time(results['automaton_states'])
-    #transitions_times_over_time_fig(results['transition_times'])
 
 # Run the event loop
 asyncio.run(main())

@@ -1,0 +1,35 @@
+# ------------------------------------------------------------
+# Temporal log for hybrid automaton: 'COLAV Automaton_v0.0.1'
+#
+# Time reference:
+#   t = 0.0
+#   Clock: monotonic simulation time
+#   Units: seconds
+#
+# Log contents:
+#   Temporal automaton events as they occur
+#   Includes transition events, invariant violations, etc.
+#   Format: [LEVEL] [timestamp]: [Event Type] [Details]
+#   Events: 
+#       - Transition: [FROM Discrete State] - [Transition Name] --> [TO Discrete State]
+#       - Activation: automaton activated
+#       - Deactivation: [reason]
+#       - ...
+#
+# Execution:
+#   Initial mode: WAYPOINT_REACHING
+#   Runner: hybrid_automaton.Runtime v0.0.3
+#   Run ID: 20260209T213703Z_608b50
+#  
+# Environment: 
+#   PID: 6262
+#   Python Version: 3.12.3 (main, Jan 22 2026, 20:57:42) [GCC 13.3.0]
+#   HOST: ros
+# ------------------------------------------------------------
+                    
+[INFO] [0.000]: [ACTIVATION] automaton activated
+[INFO] [1.050]: [Transition] 'WAYPOINT_REACHING' --[avoid]--> 'COLLISION_AVOIDANCE'
+[INFO] [2.290]: [Transition] 'COLLISION_AVOIDANCE' --[hold]--> 'CONSTANT_CONTROL'
+[INFO] [3.990]: [Transition] 'CONSTANT_CONTROL' --[resume]--> 'WAYPOINT_REACHING'
+[WARNING] [15.230]: [TIMEOUT] Exceeded 15.000s
+[INFO] [15.230]: [DEACTIVATION] automaton deactivated - TIMEOUT

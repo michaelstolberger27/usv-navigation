@@ -73,9 +73,8 @@ pip install numpy matplotlib shapely
 
 This system relies on the following custom packages (ensure they are installed or available in your Python path):
 
-- `hybrid_automaton`: Hybrid automaton framework with state, transition, and decorator support
-- `hybrid_automaton_runner`: Simulation orchestration and data collection
-- `colav_controllers`: Prescribed-time controllers, unsafe set geometry, LOS cone, V1 computation, and collision threat detection
+- `hybrid_automaton`: Hybrid automaton framework with state, transition, decorator support, and async runtime
+- `colav_unsafe_set`: Unsafe set computation and obstacle metric calculation (DCPA/TCPA)
 
 ### Setup
 
@@ -95,31 +94,38 @@ export PYTHONPATH="$PYTHONPATH:$(pwd)/src"
 ```python
 import asyncio
 import numpy as np
-from colav_automaton import ColavAutomaton
-from hybrid_automaton_runner import AutomatonRunner
+from colav_automaton import ColavAutomaton, HeadingControlProvider
+from hybrid_automaton import Automaton, RunResult
 
 async def main():
     # Create automaton with single obstacle
-    automaton = ColavAutomaton(
-        waypoint_x=20.0,
-        waypoint_y=20.0,
-        obstacles=[(10.0, 10.0, 0.0, 0.0)],  # (x, y, velocity, heading)
+    ha: Automaton = ColavAutomaton(
+        waypoint_x=10.0,
+        waypoint_y=9.0,
+        obstacles=[(5.0, 4.5, 0.0, 0.0)],  # (x, y, velocity, heading)
         Cs=2.0,   # Safety radius (meters)
         v=12.0,   # Vessel velocity (m/s)
         tp=1.0    # Prescribed time (seconds)
     )
 
+    # Controller runs asynchronously to the automaton
+    controller = HeadingControlProvider(ha)
+
     # Run simulation
-    runner = AutomatonRunner(automaton, sampling_rate=0.001)
-    await runner.run(
-        x0=np.array([0.0, 0.0, 0.0]),  # [x, y, heading]
-        duration=30.0,
-        dt=0.1,
-        integrate=True,
-        real_time_mode=False
+    results: RunResult = await ha.activate(
+        initial_continuous_state=np.array([0.0, 0.0, 0.0]),  # [x, y, heading]
+        initial_control_input_states={'u': np.array([0.0])},
+        enable_real_time_mode=False,
+        enable_self_integration=True,
+        delta_time=0.1,
+        timeout_sec=15.0,
+        continuous_state_sampler_enabled=True,
+        continuous_state_sampler_rate=100,
+        control_states_provider=controller,
+        control_states_provision_rate=100,
     )
 
-    results = runner.get_results()
+    print(results)
 
 asyncio.run(main())
 ```
@@ -152,22 +158,31 @@ python realtime_simulation.py --no-unsafe          # Hide unsafe region overlay
 ```
 usv-navigation/
 ├── src/
-│   ├── main.py                      # Basic example with plotting
+│   ├── main.py                        # Basic example with plotting
 │   └── colav_automaton/
-│       ├── __init__.py              # Package exports & version
-│       ├── automaton.py             # Main automaton factory
+│       ├── __init__.py                # Package exports (ColavAutomaton, HeadingControlProvider)
+│       ├── automaton.py               # Main automaton factory
+│       ├── controllers/
+│       │   ├── __init__.py            # Controller module exports
+│       │   ├── prescribed_time.py     # Prescribed-time heading controller & HeadingControlProvider
+│       │   ├── virtual_waypoint.py    # Virtual waypoint V1 computation (COLREGs-compliant)
+│       │   └── unsafe_sets.py         # Unsafe set geometry, LOS cone, collision threat detection
 │       ├── dynamics/
-│       │   └── dynamics.py          # State flow dynamics (shared S1/S2, S3)
+│       │   ├── __init__.py            # Dynamics module exports
+│       │   └── dynamics.py            # State flow dynamics (shared S1/S2, S3)
 │       ├── guards/
-│       │   ├── guards.py            # Transition guards (G11∧G12, ¬L1∨¬L2, ¬G11)
-│       │   └── conditions.py        # Collision detection logic (G11, G12, L1, L2)
+│       │   ├── __init__.py            # Guards module exports
+│       │   ├── guards.py             # Transition guards (G11∧G12, ¬L1∨¬L2, ¬G11)
+│       │   └── conditions.py          # Collision detection logic (G11, G12, L1, L2)
 │       ├── resets/
-│       │   └── resets.py            # State reset handlers (V1 computation & stack mgmt)
+│       │   ├── __init__.py            # Resets module exports
+│       │   └── resets.py              # State reset handlers (V1 computation & stack mgmt)
 │       └── invariants/
-│           └── invariants.py        # State invariant conditions
+│           ├── __init__.py            # Invariants module exports
+│           └── invariants.py          # State invariant conditions
 ├── examples/
-│   ├── realtime_simulation.py       # Real-time animated simulation with GIF export
-│   └── output/                      # Generated GIF animations
+│   ├── realtime_simulation.py         # Real-time animated simulation with GIF export
+│   └── output/                        # Generated GIF animations
 └── README.md
 ```
 
@@ -204,22 +219,33 @@ Two continuous dynamics functions define vessel motion:
 
 ### Guard Conditions ([guards/guards.py](src/colav_automaton/guards/guards.py), [guards/conditions.py](src/colav_automaton/guards/conditions.py))
 
-Collision detection and transition logic using functions from `colav_controllers`:
+Collision detection and transition logic using functions from the [controllers](src/colav_automaton/controllers/) module:
 
 - **Line-of-Sight (LOS) Cone**: Checks if path intersects unsafe regions via `create_los_cone()` and `compute_unified_unsafe_region()`
 - **TCPA/DCPA Metrics**: Time and distance to closest point of approach via `check_collision_threat()`
 - **Heading Alignment**: Ensures proper orientation before state transitions (~3° threshold)
 - **V1 Ahead Check**: Verifies virtual waypoint is within ±120° of heading before transitioning
 
-### Unsafe Set Geometry (from `colav_controllers`)
+### Controllers ([controllers/](src/colav_automaton/controllers/))
 
-The geometric collision detection functions are provided by the external `colav_controllers` package:
+#### Prescribed-Time Controller ([prescribed_time.py](src/colav_automaton/controllers/prescribed_time.py))
 
-- **`get_unsafe_set_vertices()`**: Generates convex hull of buffered obstacle regions
-- **`create_los_cone()`**: Forms cone from vessel position toward waypoint
-- **`compute_unified_unsafe_region()`**: Aggregates multi-obstacle unsafe sets
-- **`compute_v1()`**: Computes virtual waypoint V1 (starboard vertex of unsafe hull)
-- **`check_collision_threat()`**: DCPA/TCPA-based threat assessment
+- **`compute_prescribed_time_control()`**: Computes the heading control law that guarantees convergence to line-of-sight within time `tp`. Uses feedforward (LOS rate) + prescribed-time feedback with singularity avoidance.
+- **`HeadingControlProvider`**: Async control provider class that runs alongside the automaton evaluation loop, reading the current continuous state and computing the control input `u` each cycle.
+
+#### Virtual Waypoint ([virtual_waypoint.py](src/colav_automaton/controllers/virtual_waypoint.py))
+
+- **`compute_v1()`**: Computes virtual waypoint V1 — the starboard-most unsafe set vertex ahead of the ship (within ±90° of heading), with optional buffer for extra clearance. COLREGs-compliant starboard preference.
+- **`default_vertex_provider()`**: Creates 8 vertices around each obstacle at distance `Cs` for circular obstacle approximation.
+
+#### Unsafe Set Geometry ([unsafe_sets.py](src/colav_automaton/controllers/unsafe_sets.py))
+
+Wraps the external `colav_unsafe_set` package and provides geometric collision detection:
+
+- **`get_unsafe_set_vertices()`**: Generates convex hull vertices of unsafe regions, with support for swept regions (predicted obstacle trajectories)
+- **`create_los_cone()`**: Forms a convex cone from vessel position toward waypoint
+- **`compute_unified_unsafe_region()`**: Aggregates multi-obstacle unsafe sets with swept region support
+- **`check_collision_threat()`**: DCPA/TCPA-based threat assessment using `colav_unsafe_set` metrics
 
 ## Technical Details
 
@@ -241,7 +267,7 @@ x = [x, y, psi]
 
 **G12 (Threat Assessment):**
 - For each obstacle: `if (TCPA ≤ dsafe/v) AND (DCPA ≤ dsafe): threat = True`
-- Uses `check_collision_threat()` from `colav_controllers`
+- Uses `check_collision_threat()` from `controllers.unsafe_sets`
 - Where `dsafe = Cs + (v * 2) * tp` provides sufficient lead time for maneuvering
 
 **Virtual Waypoint V1:**
@@ -281,7 +307,7 @@ Live visualization displays:
 ### Multiple Dynamic Obstacles
 
 ```python
-automaton = ColavAutomaton(
+ha = ColavAutomaton(
     waypoint_x=30.0,
     waypoint_y=30.0,
     obstacles=[
@@ -298,19 +324,21 @@ automaton = ColavAutomaton(
 ### Head-On Encounter
 
 ```python
-automaton = ColavAutomaton(
-    waypoint_x=50.0,
+ha = ColavAutomaton(
+    waypoint_x=100.0,
     waypoint_y=0.0,
-    obstacles=[(30.0, 0.0, 3.0, 3.14159)],  # Moving toward vessel
-    Cs=3.0,
-    v=5.0
+    obstacles=[(70.0, 0.0, 2.0, np.pi)],  # Moving toward vessel
+    Cs=5.0,
+    v=12.0,
+    tp=1.0,
+    v1_buffer=3.0
 )
 ```
 
 ### Tight Maneuvering
 
 ```python
-automaton = ColavAutomaton(
+ha = ColavAutomaton(
     waypoint_x=20.0,
     waypoint_y=20.0,
     obstacles=[(10.0, 10.0, 0.0, 0.0)],
@@ -333,25 +361,41 @@ automaton = ColavAutomaton(**config)
 
 Returns a configured `Automaton` object ready for simulation.
 
+### HeadingControlProvider
+
+```python
+from colav_automaton import HeadingControlProvider
+
+controller = HeadingControlProvider(automaton)
+```
+
+Async control provider that computes the prescribed-time heading control input `u` each cycle. Pass as the `control_states_provider` argument to `automaton.activate()`.
+
 ### Running Simulations
 
 ```python
-from hybrid_automaton_runner import AutomatonRunner
+from colav_automaton import ColavAutomaton, HeadingControlProvider
+from hybrid_automaton import RunResult
 import numpy as np
 
-runner = AutomatonRunner(automaton, sampling_rate=0.001)
-await runner.run(
-    x0=np.array([x0, y0, psi0]),
-    duration=30.0,
-    dt=0.1,
-    integrate=True,
-    real_time_mode=False
-)
+ha = ColavAutomaton(**config)
+controller = HeadingControlProvider(ha)
 
-results = runner.get_results()
+results: RunResult = await ha.activate(
+    initial_continuous_state=np.array([x0, y0, psi0]),
+    initial_control_input_states={'u': np.array([0.0])},
+    enable_real_time_mode=False,
+    enable_self_integration=True,
+    delta_time=0.1,
+    timeout_sec=30.0,
+    continuous_state_sampler_enabled=True,
+    continuous_state_sampler_rate=100,
+    control_states_provider=controller,
+    control_states_provision_rate=100,
+)
 ```
 
-Returns simulation results including continuous states, automaton states, and transition times.
+Returns `RunResult` containing simulation data. When `continuous_state_sampler_enabled=True` and an `output_dir` is provided, state trajectories and transition logs are written to CSV and log files.
 
 ## Algorithm References
 
@@ -366,6 +410,5 @@ This implementation is based on:
 
 This project uses the following frameworks:
 
-- `hybrid_automaton`: Hybrid system modeling framework
-- `hybrid_automaton_runner`: Simulation orchestration and data collection
-- `colav_controllers`: Maritime collision avoidance controllers and geometric collision detection
+- `hybrid_automaton`: Hybrid system modeling framework with async runtime
+- `colav_unsafe_set`: Unsafe set computation and obstacle metric calculation (DCPA/TCPA)

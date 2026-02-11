@@ -6,7 +6,7 @@ from hybrid_automaton import RuntimeContext
 @continuous_dynamics
 def waypoint_navigation_dynamics(ctx: RuntimeContext):
     """
-    Vessel plant dynamics for S1 and S2.
+    Vessel dynamics for S1 and S2.
 
     Reads the control input u from the control input states (computed
     asynchronously by the prescribed-time heading controller) and returns

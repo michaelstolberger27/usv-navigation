@@ -70,7 +70,7 @@ def _compute_swept_obstacles(
 
             if obs.velocity > 0.1 and tcpa > 0:
                 dist_to_obs = np.hypot(
-                    obs.position[0] - ship_x,
+                    obs.position[0] - agent.position[0],
                     obs.position[1] - agent.position[1]
                 )
                 maneuver_time = min(
@@ -237,21 +237,21 @@ def compute_unified_unsafe_region(
     if not obstacles_list:
         return None
 
-    all_vertices = []
+    distance_safety = Cs
+    agent = _create_agent(pos_x, pos_y, ship_psi, ship_v, Cs)
+    dynamic_obstacles = _create_obstacles(obstacles_list, Cs)
+    obstacles_for_computation = _compute_swept_obstacles(
+        agent, dynamic_obstacles, pos_x, ship_v
+    )
 
-    for ox, oy, ov, o_psi in obstacles_list:
-        vertices = get_unsafe_set_vertices(
-            pos_x, pos_y, [(ox, oy, ov, o_psi)], Cs,
-            ship_psi=ship_psi, ship_v=ship_v,
-            use_swept_region=True
+    try:
+        convex_hull_vertices = create_unsafe_set(
+            agent, obstacles_for_computation, float(distance_safety)
         )
-        if vertices:
-            all_vertices.extend(vertices)
-
-    if len(all_vertices) < 3:
+        return generate_dynamic_unsafe_set_from_vertices(convex_hull_vertices) if convex_hull_vertices else None
+    except Exception:
+        logger.warning("create_unsafe_set failed for %d obstacles", len(obstacles_list))
         return None
-
-    return generate_dynamic_unsafe_set_from_vertices(all_vertices)
 
 
 def check_collision_threat(

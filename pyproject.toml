@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "colav-automaton"
+version = "0.0.1"
+description = "Hybrid-automaton-based COLREGs-compliant collision avoidance for USVs"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "shapely",
+    "hybrid-automaton",
+    "colav-unsafe-set",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

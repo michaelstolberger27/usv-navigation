@@ -153,6 +153,41 @@ python realtime_simulation.py --no-unsafe          # Hide unsafe region overlay
 5. Overtaking Encounter
 6. Multi-Vessel Crossing
 
+#### CommonOcean Simulator Integration
+
+The COLAV automaton can be tested inside [commonocean-sim](https://github.com/CommonOcean/commonocean-sim) via the adapter layer in `src/colav_automaton/adapters/`. A Docker setup is provided so that the full simulation stack (commonocean-sim, Gurobi, VNC) is pre-configured.
+
+**Start the container:**
+
+```bash
+# Interactive shell
+docker/start.sh -it
+
+# Or detached (access via VNC)
+docker/start.sh
+```
+
+Once the container is running, connect to the noVNC web interface at `http://localhost:6080/vnc.html` to see the pyglet visualisation.
+
+**Run a head-on collision test** (two vessels on a collision course):
+
+```bash
+cd /app/commonocean-sim/src
+python3 /app/usv-navigation/examples/commonocean_collision_test.py
+```
+
+This spawns a COLAV-controlled vessel heading East and an MPC vessel heading West, runs the simulation, and saves trajectory plots and an animated GIF to `/app/usv-navigation/output/`.
+
+**Run a CommonOcean XML scenario:**
+
+```bash
+cd /app/commonocean-sim/src
+python3 /app/usv-navigation/examples/commonocean_scenario.py              # default scenario
+python3 /app/usv-navigation/examples/commonocean_scenario.py <path.xml>   # custom scenario
+```
+
+The first planning problem in the scenario is controlled by the COLAV automaton; remaining vessels and dynamic obstacles are handled by the commonocean-sim defaults.
+
 ## Project Structure
 
 ```
@@ -162,27 +197,32 @@ usv-navigation/
 │   └── colav_automaton/
 │       ├── __init__.py                # Package exports (ColavAutomaton, HeadingControlProvider)
 │       ├── automaton.py               # Main automaton factory
+│       ├── adapters/
+│       │   ├── commonocean.py         # HybridAutomatonController (commonocean-sim adapter)
+│       │   └── vessel_factory.py      # ColavVesselFactory (creates commonocean vessels)
 │       ├── controllers/
-│       │   ├── __init__.py            # Controller module exports
 │       │   ├── prescribed_time.py     # Prescribed-time heading controller & HeadingControlProvider
 │       │   ├── virtual_waypoint.py    # Virtual waypoint V1 computation (COLREGs-compliant)
 │       │   └── unsafe_sets.py         # Unsafe set geometry, LOS cone, collision threat detection
 │       ├── dynamics/
-│       │   ├── __init__.py            # Dynamics module exports
 │       │   └── dynamics.py            # State flow dynamics (shared S1/S2, S3)
 │       ├── guards/
-│       │   ├── __init__.py            # Guards module exports
-│       │   ├── guards.py             # Transition guards (G11∧G12, ¬L1∨¬L2, ¬G11)
+│       │   ├── guards.py              # Transition guards (G11∧G12, ¬L1∨¬L2, ¬G11)
 │       │   └── conditions.py          # Collision detection logic (G11, G12, L1, L2)
 │       ├── resets/
-│       │   ├── __init__.py            # Resets module exports
 │       │   └── resets.py              # State reset handlers (V1 computation & stack mgmt)
 │       └── invariants/
-│           ├── __init__.py            # Invariants module exports
 │           └── invariants.py          # State invariant conditions
 ├── examples/
-│   ├── realtime_simulation.py         # Real-time animated simulation with GIF export
-│   └── output/                        # Generated GIF animations
+│   ├── realtime_simulation.py             # Real-time animated simulation with GIF export
+│   ├── commonocean_collision_test.py      # Head-on collision test (requires Docker)
+│   ├── commonocean_scenario.py            # Run a CommonOcean XML scenario (requires Docker)
+│   └── output/                            # Generated GIF animations
+├── docker/
+│   ├── Dockerfile                     # Full simulation stack (commonocean-sim + VNC)
+│   ├── docker-compose.yml             # Service definition with volume mounts
+│   └── start.sh                       # Helper to start the container
+├── pyproject.toml
 └── README.md
 ```
 

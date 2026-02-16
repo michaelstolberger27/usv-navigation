@@ -1,0 +1,17 @@
+services:
+  sim:
+    build:
+      context: ..                      # usv-navigation root
+      dockerfile: docker/Dockerfile
+      additional_contexts:
+        hybrid-automaton: ../../hybrid-automaton
+        unsafe-set: ../../unsafe-set
+    ports:
+      - "6080:6080"                    # noVNC web UI
+      - "5900:5900"                    # VNC direct
+    volumes:
+      - ../src:/app/usv-navigation/src              # live-reload source changes
+      - ../examples:/app/usv-navigation/examples
+      - ../output:/app/usv-navigation/output        # persist output files
+    stdin_open: true
+    tty: true

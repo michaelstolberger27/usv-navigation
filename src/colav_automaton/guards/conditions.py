@@ -59,9 +59,11 @@ def G11_check(
     if unsafe_polygon is None:
         return False
 
-    # Use a narrower LOS cone for checking (reduced uncertainty after maneuvers)
-    # This prevents false positives when ship has already passed obstacle
-    effective_tp = min(tp, 1.0)  # Cap at 1 second of travel to prevent excessively wide cones
+    # LOS cone half-width = Cs so that any obstacle within the safety radius
+    # of the path to the waypoint triggers the guard.  We express this as an
+    # effective tp so the existing create_los_cone API (radius = v * tp) works:
+    #   v * effective_tp = Cs  =>  effective_tp = Cs / v
+    effective_tp = Cs / v
     los_cone = create_los_cone(pos_x, pos_y, xw, yw, v, effective_tp)
 
     # Check intersection

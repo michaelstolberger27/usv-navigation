@@ -49,6 +49,7 @@ class HybridAutomatonController(VesselController):
         tp: float,
         Cs: float,
         v1_buffer: float = 0.0,
+        goal_waypoint: tuple = None,
     ):
         super().__init__(vessel)
         self.dt = dt
@@ -58,6 +59,7 @@ class HybridAutomatonController(VesselController):
         self.tp = tp
         self.Cs = Cs
         self.v1_buffer = v1_buffer
+        self.goal_waypoint = goal_waypoint  # final goal for long-range G11 check
         self.sim = None  # set by simulator after construction
 
         # Shared state — written by control_input(), read by providers
@@ -94,6 +96,7 @@ class HybridAutomatonController(VesselController):
         self.v1_tracker = []  # Track virtual waypoints (V1) during avoidance
         self.real_time_pacing = True  # sleep(dt) each tick for display sync
         self._last_waypoint = None  # track waypoint changes
+        self._last_automaton_state = None  # detect S2/S3 → S1 transitions
 
     # ---- background thread ----
 
@@ -148,7 +151,13 @@ class HybridAutomatonController(VesselController):
         current_wp = (target_state[0], target_state[1])
         if ctx is not None:
             cfg = ctx.configuration
-            cfg['waypoints'][0] = current_wp
+            # Use goal for guard LOS checks (long-range detection).
+            # Navigation still steers toward the intermediate waypoint
+            # via target_state / yaw_rate computation below.
+            if self.goal_waypoint is not None:
+                cfg['waypoints'][0] = self.goal_waypoint
+            else:
+                cfg['waypoints'][0] = current_wp
             cfg['obstacles'] = self._get_obstacles()
 
             # Reset prescribed-time clock when waypoint changes
@@ -182,8 +191,33 @@ class HybridAutomatonController(VesselController):
             else:
                 self.v1_tracker.append(None)  # No V1 in S1
         else:
-            self.state_tracker.append('WAYPOINT_REACHING')
+            state_name = 'WAYPOINT_REACHING'
+            self.state_tracker.append(state_name)
             self.v1_tracker.append(None)
+
+        # After avoidance (S2/S3 → S1), skip past intermediate waypoints
+        # that are now behind the vessel so it doesn't backtrack.
+        if (state_name == 'WAYPOINT_REACHING'
+                and self._last_automaton_state is not None
+                and self._last_automaton_state != 'WAYPOINT_REACHING'
+                and self.controlled_vessel is not None):
+            vessel = self.controlled_vessel
+            if hasattr(vessel, 'waypoints') and vessel.waypoints is not None:
+                wps = vessel.waypoints
+                idx = vessel.next_waypoint_index
+                while idx < len(wps) - 1:
+                    wp_dir = wps[idx] - np.array([pos_x, pos_y])
+                    fwd = np.array([np.cos(psi), np.sin(psi)])
+                    # Skip waypoint if it's behind the vessel
+                    if np.dot(wp_dir, fwd) < 0:
+                        vessel.passed_waypoint = wps[idx]
+                        idx += 1
+                        vessel.next_waypoint_index = idx
+                        vessel.next_waypoint = wps[idx]
+                    else:
+                        break
+                print(f"  [AVOIDANCE RECOVERY] Skipped to waypoint index {idx}")
+        self._last_automaton_state = state_name
 
         if self.stepped % 10 == 1:
             u_str = f"{u:.3f}" if ctx is not None else "N/A"
@@ -212,6 +246,7 @@ class HybridAutomatonController(VesselController):
             None, self.dt,
             a=self.a, v=self.v, eta=self.eta, tp=self.tp,
             Cs=self.Cs, v1_buffer=self.v1_buffer,
+            goal_waypoint=self.goal_waypoint,
         )
         clone.controlled_vessel = None
         return clone
@@ -228,9 +263,13 @@ class HybridAutomatonController(VesselController):
         pass
 
     def shutdown(self):
-        """Stop the background automaton loop."""
+        """Stop the background automaton loop and release resources."""
         self._ha.deactivate()
         self._thread.join(timeout=2.0)
+        # Close the event loop to release file descriptors (selector + self-pipe)
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._loop.close()
 
     # ---- obstacle access ----
 

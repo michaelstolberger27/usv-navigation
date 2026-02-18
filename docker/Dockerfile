@@ -136,7 +136,8 @@ COPY . /app/usv-navigation
 RUN pip install -e /app/usv-navigation[viz]
 
 # commonocean-sim is not pip-installable; keep it on PYTHONPATH
-ENV PYTHONPATH="/app/commonocean-sim/src:${PYTHONPATH}"
+# Also add usv-navigation root so commonocean_integration package is importable
+ENV PYTHONPATH="/app/commonocean-sim/src:/app/usv-navigation:${PYTHONPATH}"
 
 WORKDIR /app/usv-navigation
 
@@ -154,10 +155,10 @@ echo "  VNC:   vnc://localhost:5900"\n\
 echo "  Web:   http://localhost:6080/vnc.html"\n\
 echo ""\n\
 echo "  Run head-on collision test:"\n\
-echo "    cd /app/commonocean-sim/src && python3 /app/usv-navigation/examples/commonocean_collision_test.py"\n\
+echo "    cd /app/commonocean-sim/src && python3 /app/usv-navigation/commonocean_integration/scripts/commonocean_collision_test.py"\n\
 echo ""\n\
 echo "  Run CommonOcean scenario:"\n\
-echo "    cd /app/commonocean-sim/src && python3 /app/usv-navigation/examples/commonocean_scenario.py <scenario.xml>"\n\
+echo "    cd /app/commonocean-sim/src && python3 /app/usv-navigation/commonocean_integration/scripts/commonocean_scenario.py <scenario.xml>"\n\
 echo ""\n\
 echo "  Output files: /app/usv-navigation/output/"\n\
 echo ""\n\

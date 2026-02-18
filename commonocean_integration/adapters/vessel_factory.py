@@ -14,7 +14,7 @@ from Environment.SurfaceVessel import SurfaceVessel
 from Environment.VesselFactory import VesselFactory
 from Util.Utilities import divide_long_waypointpaths
 
-from colav_automaton.adapters.commonocean import HybridAutomatonController
+from .controller import HybridAutomatonController
 
 
 class ColavVesselFactory(VesselFactory):
@@ -56,6 +56,7 @@ class ColavVesselFactory(VesselFactory):
         ship_name: str = None,
         paramid=None,
         vesselid=None,
+        goal_waypoint: tuple = None,
     ) -> SurfaceVessel:
         # Vessel dynamics (YP model)
         dynamics = VesselDynamics.from_model(VesselModel.YP, self.vessel_type)
@@ -83,7 +84,10 @@ class ColavVesselFactory(VesselFactory):
         vessel.set_waypoints(waypoints)
 
         # Controller
-        controller = HybridAutomatonController(vessel, dt, **self.ctrl_params)
+        ctrl_kwargs = {**self.ctrl_params}
+        if goal_waypoint is not None:
+            ctrl_kwargs['goal_waypoint'] = goal_waypoint
+        controller = HybridAutomatonController(vessel, dt, **ctrl_kwargs)
         controller.initialise()
         vessel.set_controller(controller)
 

@@ -6,8 +6,16 @@ and generates trajectory plots + an animated GIF of the encounter.
 
 Usage inside the Docker container:
     cd /app/commonocean-sim/src
-    python3 /app/usv-navigation/examples/commonocean_collision_test.py
+    python3 /app/usv-navigation/commonocean_integration/scripts/commonocean_collision_test.py
 """
+
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import os
 import numpy as np
@@ -22,7 +30,7 @@ from commonocean.scenario.state import YPState
 from Simulator.SimulatorFactory import SimulatorFactory
 from Environment.VesselFactory import SControlledYawParamVesselFactory
 
-from colav_automaton.adapters import ColavVesselFactory
+from commonocean_integration.adapters import ColavVesselFactory
 from colav_automaton.controllers.unsafe_sets import get_unsafe_set_vertices
 
 # ---- Configuration ----
@@ -62,6 +70,7 @@ waypoints_1 = np.array([
 vessel_1 = colav_factory.get_vessel(
     init_state_1, waypoints_1, dt,
     ship_name="COLAV_East", vesselid=10,
+    goal_waypoint=(2400.0, 0.0),
 )
 
 # ---- Vessel 2: Default MPC (West-bound) ----

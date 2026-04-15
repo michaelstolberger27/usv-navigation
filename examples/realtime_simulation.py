@@ -373,10 +373,10 @@ class RealtimeSimulation:
 
         print(f"Simulation complete: {len(self.sim_states)} samples")
 
-        # Subsample for animation: target 30fps real-time playback
+        # Subsample for animation: target 30fps real-time playback, cap at 300 frames
         self.anim_fps = 30
         sim_duration = self.sim_times[-1] - self.sim_times[0] if len(self.sim_times) > 1 else 1.0
-        target_frames = max(2, int(sim_duration * self.anim_fps))
+        target_frames = min(300, max(2, int(sim_duration * self.anim_fps)))
         n = len(self.sim_states)
         if n > target_frames:
             step = n / target_frames
@@ -500,9 +500,9 @@ class RealtimeSimulation:
             scenario_name = self.scenario['name'].lower().replace(' ', '_').replace('-', '_')
             output_path = OUTPUT_DIR / f"scenario{self.scenario_id}_{scenario_name}.gif"
 
-        # Save as GIF
+        # Save as GIF with reduced DPI to avoid OOM on long simulations
         print(f"Saving to: {output_path}")
-        self.anim.save(str(output_path), writer='pillow', fps=self.anim_fps)
+        self.anim.save(str(output_path), writer='pillow', fps=self.anim_fps, dpi=80)
         print(f"Saved: {output_path}")
         plt.close(self.fig)
 

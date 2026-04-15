@@ -1,14 +1,40 @@
 from typing import List, Tuple, Optional
 
+import numpy as np
+
 from hybrid_automaton import Automaton
 from hybrid_automaton.definition import State, Transition
-from colav_automaton.guards import G11_and_G12_guard, L1_bar_or_L2_bar_guard, not_G11_guard
+from colav_automaton.guards import G11_and_G22_guard, L1_bar_or_L2_bar_guard, not_G23_guard
 from colav_automaton.resets import reset_enter_avoidance, reset_reach_V1, reset_exit_avoidance
 from colav_automaton.invariants import is_goal_waypoint_invariant
 from colav_automaton.dynamics import (
     waypoint_navigation_dynamics,
     constant_control_dynamics,
 )
+
+
+def _compute_delta(v: float, a: float, eta: float, tp: float, m: float) -> float:
+    """Compute δ from paper eq 9 (with t0 = 0).
+
+    δ ≥ 2v / (a · (m − π − η·π / (a · tp^η)))
+
+    where m = (c − a·π) / a is the input constraint bound (|u| ≤ m).
+
+    When the denominator is non-positive, the input constraint |u| ≤ m is
+    satisfied for ANY δ > 0 (the bound is non-binding).  This is the common
+    case for typical parameters (e.g. m=3, η=3.5, a=1.67) — a practical
+    heuristic is used instead.
+    """
+    denom_inner = m - np.pi - eta * np.pi / (a * tp ** eta)
+    if denom_inner <= 0:
+        # Non-binding: any δ > 0 satisfies the input constraint.
+        # Use a practical heuristic for the waypoint arrival radius.
+        return max(5.0, v * tp * 0.5)
+    denom = a * denom_inner
+    delta = 2.0 * v / denom
+    return max(delta, 1.0)
+
+
 def ColavAutomaton(
     waypoint_x: float = 10.0,
     waypoint_y: float = 9.0,
@@ -18,11 +44,19 @@ def ColavAutomaton(
     v: float = 12.0,
     eta: float = 3.5,
     tp: float = 1.0,
-    v1_buffer: float = 0.0
+    v1_buffer: float = 0.0,
+    m: float = 3.0,
+    K: float = 0.35,
+    dcpa_beta1: float = 463.0,
+    dcpa_beta2: float = 926.0,
+    tcpa_beta1: float = 120.0,
+    tcpa_beta2: float = 240.0,
+    dist_beta1: float = 148.0,
+    dist_beta2: float = 463.0,
 ) -> Automaton:
 
-    delta = max(5.0, v * tp * 0.5)
-    dsafe = Cs + (v * 2) * tp
+    delta = _compute_delta(v, a, eta, tp, m)
+    dsafe = Cs + v * tp
 
     # States
     S1 = State(
@@ -49,7 +83,7 @@ def ColavAutomaton(
     S1.add_transition(Transition(
         name="avoid",
         to_state=S2,
-        guards=[G11_and_G12_guard],
+        guards=[G11_and_G22_guard],
         reset=reset_enter_avoidance,
         priority=1
     ))
@@ -65,7 +99,7 @@ def ColavAutomaton(
     S3.add_transition(Transition(
         name="resume",
         to_state=S1,
-        guards=[not_G11_guard],
+        guards=[not_G23_guard],
         reset=reset_exit_avoidance,
         priority=1
     ))
@@ -84,7 +118,14 @@ def ColavAutomaton(
             'v': v,
             'eta': eta,
             'tp': tp,
-            'v1_buffer': v1_buffer
+            'v1_buffer': v1_buffer,
+            'K': K,
+            'dcpa_beta1': dcpa_beta1,
+            'dcpa_beta2': dcpa_beta2,
+            'tcpa_beta1': tcpa_beta1,
+            'tcpa_beta2': tcpa_beta2,
+            'dist_beta1': dist_beta1,
+            'dist_beta2': dist_beta2,
         }
     )
 

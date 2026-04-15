@@ -1,18 +1,21 @@
 """
-Batch evaluation of COLAV automaton across CommonOcean scenarios.
+Batch evaluation of COLAV automaton on HandcraftedTwoVesselEncounters scenarios.
+
+Each scenario has 1 ego vessel (planning problem) and 1 dynamic obstacle (traffic)
+with a pre-computed trajectory.
 
 Usage inside the Docker container:
     cd /app/commonocean-sim/src
-    python3 /app/usv-navigation/commonocean/scripts/batch_evaluate.py [OPTIONS]
+    python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate_handcrafted.py [OPTIONS]
 
 Options:
-    --scenarios-dir PATH   Directory containing XML scenario files
-                           (default: /app/scenarios)
+    --scenarios-dir PATH   Directory with XML scenario files
+                           (default: /app/scenarios/HandcraftedTwoVesselEncounters_01_24)
     --output-dir PATH      Where to write results CSV and plots
-                           (default: /app/usv-navigation/output/batch_eval)
-    --limit N              Only run first N scenarios (for testing)
+                           (default: /app/usv-navigation/output/batch_eval_handcrafted)
+    --limit N              Only run first N scenarios (0 = all)
     --start N              Start from scenario index N
-    --max-runtime N        Max simulation steps per scenario (default: 2000)
+    --max-runtime N        Max simulation steps per scenario (default: 3000)
     --resume               Skip already-completed scenarios if CSV exists
     --dt FLOAT             Simulation timestep (default: 1.0)
 """
@@ -305,7 +308,8 @@ def main():
     parser.add_argument('--scenarios-dir',
                         default='/app/scenarios/HandcraftedTwoVesselEncounters_01_24',
                         help='Directory with XML scenario files')
-    parser.add_argument('--output-dir', default='/app/usv-navigation/output/batch_eval',
+    parser.add_argument('--output-dir',
+                        default='/app/usv-navigation/output/batch_eval_handcrafted',
                         help='Output directory for results')
     parser.add_argument('--limit', type=int, default=0,
                         help='Limit to first N scenarios (0 = all)')

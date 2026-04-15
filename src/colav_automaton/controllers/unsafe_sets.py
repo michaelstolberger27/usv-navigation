@@ -55,8 +55,11 @@ def _compute_swept_obstacles(
     """
     Expand obstacle list with predicted future positions to create a swept region.
 
-    For moving obstacles, adds predicted positions at 50% and 100% of estimated
-    maneuver time, ensuring the unsafe set covers the obstacle's trajectory.
+    For moving obstacles, samples the obstacle's predicted trajectory up to TCPA.
+    The convex hull of all sampled Cs-circles approximates the Minkowski sum
+    from paper eq 27.  Note: the create_unsafe_set API also internally predicts
+    positions from obstacle velocity, so these extra samples reinforce coverage
+    for intermediate points along the trajectory.
     """
     obstacles = []
     try:
@@ -69,16 +72,11 @@ def _compute_swept_obstacles(
             obstacles.append(obs)
 
             if obs.velocity > 0.1 and tcpa > 0:
-                dist_to_obs = np.hypot(
-                    obs.position[0] - agent.position[0],
-                    obs.position[1] - agent.position[1]
-                )
-                maneuver_time = min(
-                    max(tcpa, dist_to_obs / ship_v) * 1.5,
-                    30.0
-                )
+                sweep_horizon = tcpa
+                n_samples = min(max(int(sweep_horizon / 10.0), 3), 20)
 
-                for dt in [maneuver_time * 0.5, maneuver_time]:
+                for i in range(1, n_samples + 1):
+                    dt = sweep_horizon * i / n_samples
                     predicted_pos = predict_position(
                         obs.position, obs.orientation,
                         obs.velocity, obs.yaw_rate, dt
@@ -163,6 +161,8 @@ def get_unsafe_set_vertices(
             agent, dynamic_obstacles, ship_x, ship_v
         )
     else:
+        # Pass obstacles with actual velocity — the API internally predicts
+        # future positions up to TCPA for motion-aware V1 placement.
         obstacles_for_computation = dynamic_obstacles
 
     try:
@@ -216,13 +216,17 @@ def compute_unified_unsafe_region(
     obstacles_list: List[Tuple[float, float, float, float]],
     Cs: float,
     ship_psi: float = 0.0,
-    ship_v: float = 12.0
+    ship_v: float = 12.0,
+    static_only: bool = False,
 ) -> Optional[Polygon]:
     """
-    Compute unified unsafe region from all obstacles for G11 guard checks.
+    Compute unified unsafe region from all obstacles for guard checks.
 
-    Uses swept regions to account for obstacle motion, ensuring the unsafe
-    set covers where dynamic obstacles will be during the maneuver window.
+    Uses the colav_unsafe_set API which internally predicts obstacle positions
+    up to TCPA from their velocity.  When static_only=True, obstacles are
+    passed with zero velocity so only their current positions contribute —
+    use this for G23 resume checks where the full TCPA prediction is too
+    conservative and prevents the ship from ever resuming.
 
     Args:
         pos_x, pos_y: Ship position
@@ -230,6 +234,7 @@ def compute_unified_unsafe_region(
         Cs: Safety radius
         ship_psi: Ship heading (rad)
         ship_v: Ship velocity (m/s)
+        static_only: If True, treat obstacles as stationary (current position only)
 
     Returns:
         Polygon: Unified unsafe set, or None if no obstacles
@@ -237,12 +242,35 @@ def compute_unified_unsafe_region(
     if not obstacles_list:
         return None
 
-    distance_safety = Cs
     agent = _create_agent(pos_x, pos_y, ship_psi, ship_v, Cs)
-    dynamic_obstacles = _create_obstacles(obstacles_list, Cs)
-    obstacles_for_computation = _compute_swept_obstacles(
-        agent, dynamic_obstacles, pos_x, ship_v
-    )
+
+    if static_only:
+        # Zero-velocity obstacles — API won't predict future positions.
+        # Used for G23 resume checks where the full prediction is too
+        # conservative and prevents the ship from ever resuming.
+        obstacles_for_computation = [
+            DynamicObstacle(
+                tag=f"obs_{i}",
+                position=(ox, oy, 0.0),
+                orientation=(0.0, 0.0, np.sin(o_psi / 2), np.cos(o_psi / 2)),
+                velocity=0.0,
+                yaw_rate=0.0,
+                safety_radius=Cs
+            )
+            for i, (ox, oy, ov, o_psi) in enumerate(obstacles_list)
+        ]
+    else:
+        # Pass obstacles with actual velocity — the API internally predicts
+        # future positions up to TCPA, creating a motion-aware unsafe set.
+        obstacles_for_computation = _create_obstacles(obstacles_list, Cs)
+
+    # distance_safety must be large enough to include all positions
+    max_dist = 0.0
+    for obs in obstacles_for_computation:
+        d = np.hypot(obs.position[0] - pos_x, obs.position[1] - pos_y)
+        if d > max_dist:
+            max_dist = d
+    distance_safety = max(max_dist + Cs, Cs)
 
     try:
         convex_hull_vertices = create_unsafe_set(
@@ -261,13 +289,14 @@ def check_collision_threat(
     obstacles_list: List[Tuple[float, float, float, float]],
     ship_v: float,
     Cs: float,
-    dsafe: float
+    dsafe: float,
+    tcpa_multiplier: float = 3.0
 ) -> bool:
     """
     Check if any obstacle poses a collision threat using DCPA/TCPA.
 
     An obstacle threatens if:
-    - Time to Closest Point of Approach (TCPA) <= dsafe / ship_v
+    - Time to Closest Point of Approach (TCPA) <= tcpa_multiplier * dsafe / ship_v
     - Distance at CPA (DCPA) <= dsafe
 
     Args:
@@ -277,6 +306,7 @@ def check_collision_threat(
         ship_v: Ship velocity (m/s)
         Cs: Safety radius (m)
         dsafe: Safe maneuvering distance (m)
+        tcpa_multiplier: Multiplier for TCPA threshold (default 3.0)
 
     Returns:
         bool: True if any obstacle is a collision threat
@@ -288,6 +318,6 @@ def check_collision_threat(
     dynamic_obstacles = _create_obstacles(obstacles_list, Cs)
 
     results = calculate_obstacle_metrics_for_agent(agent, dynamic_obstacles)
-    tcpa_threshold = dsafe / ship_v
+    tcpa_threshold = tcpa_multiplier * dsafe / ship_v
 
     return any(r.tcpa <= tcpa_threshold and r.dcpa <= dsafe for r in results)

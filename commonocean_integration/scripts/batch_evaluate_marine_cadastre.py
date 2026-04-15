@@ -1,19 +1,30 @@
 """
-Batch evaluation of COLAV automaton across CommonOcean scenarios.
+Batch evaluation of COLAV automaton on MarineCadastre scenarios.
+
+MarineCadastre scenarios contain multiple planning problems (vessels) but no
+pre-computed dynamic obstacle trajectories.  This script picks one vessel as
+the ego (COLAV-controlled) and synthesizes straight-line constant-velocity
+trajectories for the remaining vessels, which become dynamic obstacles.
+
+Only multi-vessel scenarios (2+ planning problems) are evaluated — single-
+vessel scenarios have no encounters to test.
 
 Usage inside the Docker container:
     cd /app/commonocean-sim/src
-    python3 /app/usv-navigation/commonocean/scripts/batch_evaluate.py [OPTIONS]
+    python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate_marine_cadastre.py [OPTIONS]
 
 Options:
-    --scenarios-dir PATH   Directory containing XML scenario files
-                           (default: /app/scenarios)
+    --scenarios-dir PATH   Root MarineCadastre directory (contains Florida/, etc.)
+                           (default: /app/scenarios/MarineCadastre_01_19)
+    --region REGION        Sub-region to evaluate: Florida, MiddleEastCoast,
+                           UpperWestCoast, or 'all' (default: all)
     --output-dir PATH      Where to write results CSV and plots
-                           (default: /app/usv-navigation/output/batch_eval)
-    --limit N              Only run first N scenarios (for testing)
+                           (default: /app/usv-navigation/output/batch_eval_marine_cadastre)
+    --limit N              Only run first N scenarios (0 = all)
     --start N              Start from scenario index N
-    --max-runtime N        Max simulation steps per scenario (default: 2000)
+    --max-runtime N        Max simulation steps per scenario (default: 5000)
     --resume               Skip already-completed scenarios if CSV exists
+    --min-obstacles N      Minimum number of traffic vessels (default: 1)
     --dt FLOAT             Simulation timestep (default: 1.0)
 """
 
@@ -36,58 +47,194 @@ import numpy as np
 import pandas as pd
 
 from commonocean.common.file_reader import CommonOceanFileReader
+from commonocean.scenario.obstacle import DynamicObstacle, ObstacleType
 from commonocean.scenario.state import YPState
+from commonocean.scenario.trajectory import Trajectory
+from commonocean.prediction.prediction import TrajectoryPrediction
 from Simulator.SimulatorFactory import SimulatorFactory
 from Pipeline.SimulationIO import extract_center_point_of_region
 
 from commonocean_integration.adapters import ColavVesselFactory
 from commonocean_integration.evaluation import extract_metrics
 from commonocean_integration.sim_utils import (
-    interpolate_dynamic_obstacles,
     GoalReachedStopper,
     setup_config,
 )
 
 
+def synthesize_traffic_obstacle(pp, ego_t0, scenario_dt, target_dt, obs_id, min_steps=5000):
+    """
+    Convert a planning problem into a dynamic obstacle with a straight-line
+    constant-velocity trajectory.
+
+    The vessel travels from its initial position along its initial heading at
+    its initial velocity.  The trajectory is generated at target_dt resolution.
+
+    Args:
+        pp: CommonOcean PlanningProblem object.
+        ego_t0: Ego vessel's initial time step (scenario units) — used to
+                align traffic start time relative to ego.
+        scenario_dt: Scenario time step size (e.g. 10.0 s).
+        target_dt: Simulation time step (e.g. 1.0 s).
+        obs_id: Unique obstacle ID.
+        min_steps: Minimum trajectory length in sim steps.
+
+    Returns:
+        DynamicObstacle with synthesized trajectory.
+    """
+    init = pp.initial_state
+    v = init.velocity
+    heading = init.orientation
+    px, py = init.position
+
+    # Time offset: how many sim steps ahead/behind of ego this vessel starts
+    time_offset_scenario = init.time_step - ego_t0
+    time_offset_steps = int(round(time_offset_scenario * scenario_dt / target_dt))
+
+    # If traffic starts later than ego, advance its position to t=0
+    # If traffic starts earlier, it's already been moving — advance position
+    if time_offset_steps != 0:
+        dt_shift = -time_offset_steps * target_dt  # seconds to shift
+        px += v * np.cos(heading) * dt_shift
+        py += v * np.sin(heading) * dt_shift
+
+    # Generate trajectory from step 1 to min_steps
+    state_list = []
+    for t in range(1, min_steps + 1):
+        state_list.append(YPState(
+            time_step=t,
+            position=np.array([
+                px + v * np.cos(heading) * t * target_dt,
+                py + v * np.sin(heading) * t * target_dt,
+            ]),
+            velocity=v,
+            orientation=heading,
+        ))
+
+    init_state = YPState(
+        time_step=0,
+        position=np.array([px, py]),
+        velocity=v,
+        orientation=heading,
+    )
+
+    trajectory = Trajectory(
+        initial_time_step=1,
+        state_list=state_list,
+    )
+
+    # Use a simple rectangular shape for the obstacle
+    from commonroad.geometry.shape import Rectangle
+    shape = Rectangle(length=175.0, width=30.0)
+
+    prediction = TrajectoryPrediction(
+        trajectory=trajectory,
+        shape=shape,
+    )
+
+    dyn_obs = DynamicObstacle(
+        obstacle_id=obs_id,
+        obstacle_type=ObstacleType.MOTORVESSEL,
+        obstacle_shape=shape,
+        initial_state=init_state,
+        prediction=prediction,
+    )
+
+    return dyn_obs
+
+
+def discover_scenarios(scenarios_dir, region, min_obstacles=1):
+    """
+    Find MarineCadastre XML files with enough traffic vessels.
+
+    A scenario with N planning problems has 1 ego + (N-1) traffic vessels.
+    min_obstacles=1 requires at least 2 PPs (the default — single-vessel
+    scenarios have no encounters).  min_obstacles=3 requires 4+ PPs, etc.
+
+    Uses fast XML element counting instead of full scenario parsing.
+    Returns list of file paths, sorted lexicographically.
+    """
+    import xml.etree.ElementTree as ET
+
+    min_pps = min_obstacles + 1  # 1 ego + min_obstacles traffic
+
+    if region == 'all':
+        pattern = os.path.join(scenarios_dir, '**', '*.xml')
+        xml_files = sorted(glob.glob(pattern, recursive=True))
+    else:
+        pattern = os.path.join(scenarios_dir, region, '*.xml')
+        xml_files = sorted(glob.glob(pattern))
+
+    # Filter by planning problem count
+    matched = []
+    for f in xml_files:
+        try:
+            tree = ET.parse(f)
+            n_pps = len(tree.findall('.//planningProblem'))
+            if n_pps >= min_pps:
+                matched.append(f)
+        except ET.ParseError:
+            continue
+
+    return matched
+
+
 def run_single_scenario(scenario_path, dt, config, colav_params):
     """
-    Run one CommonOcean XML scenario with the COLAV controller.
+    Run one MarineCadastre scenario with the COLAV controller.
 
-    Returns a dict of metrics, or raises on failure.
+    Picks the first planning problem as ego, converts the rest to traffic.
+    Returns a dict of metrics.
     """
     scenario_id = os.path.basename(scenario_path).replace(".xml", "")
-
     t0 = time.time()
 
     # Load scenario
     reader = CommonOceanFileReader(scenario_path)
     scenario, planning_problem_set = reader.open()
+    scenario_dt = scenario.dt or 10.0
 
-    # Interpolate traffic trajectories to match sim dt (e.g. 10s → 1s)
-    # Also extrapolates to at least 3000 steps so the sim doesn't terminate
-    # prematurely when avoidance detours take longer than the original traffic.
-    interpolate_dynamic_obstacles(scenario, dt)
-    for _dobs in scenario.dynamic_obstacles:
-        _pred = _dobs.prediction
-        if _pred and _pred.trajectory:
-            _tlen = len(_pred.trajectory.state_list)
-            print(f"  Traffic trajectory length after interpolation: {_tlen} steps")
+    # Get all planning problems
+    all_pps = list(planning_problem_set._planning_problem_dict.values())
+    if len(all_pps) < 2:
+        raise ValueError(f"Single-vessel scenario, skipping: {scenario_id}")
 
-    # Get the single planning problem
-    pp = list(planning_problem_set._planning_problem_dict.values())[0]
+    # Ego = first planning problem (typically at origin)
+    ego_pp = all_pps[0]
+    traffic_pps = all_pps[1:]
 
-    # Extract waypoints and goal
-    # The waypoint list must start with the initial position — commonocean-sim's
-    # divide_long_waypointpaths needs at least 2 points to form segments.
-    init = pp.initial_state
-    waypoints = [np.array(init.position, dtype="float64")]
-    if pp.waypoints:
-        waypoints.extend(pp.generate_reference_points_from_waypoint())
-    goal_pos = extract_center_point_of_region(pp.goal)
+    ego_init = ego_pp.initial_state
+    ego_t0 = ego_init.time_step
+
+    print(f"  {len(all_pps)} vessels: ego PP {ego_pp.planning_problem_id} "
+          f"(v={ego_init.velocity:.1f} m/s), "
+          f"{len(traffic_pps)} traffic")
+
+    # Synthesize dynamic obstacles from traffic planning problems
+    dynamic_obstacles = []
+    for i, traffic_pp in enumerate(traffic_pps):
+        obs = synthesize_traffic_obstacle(
+            traffic_pp, ego_t0, scenario_dt, dt,
+            obs_id=1000 + i,
+        )
+        dynamic_obstacles.append(obs)
+        t_init = traffic_pp.initial_state
+        print(f"    Traffic {i}: v={t_init.velocity:.1f} m/s, "
+              f"pos=({t_init.position[0]:.0f}, {t_init.position[1]:.0f})")
+
+    # Inject synthesized obstacles into the scenario object for metrics.
+    # _dynamic_obstacles is a defaultdict keyed by obstacle_id.
+    for obs in dynamic_obstacles:
+        scenario._dynamic_obstacles[obs.obstacle_id] = obs
+
+    # Build ego vessel waypoints
+    waypoints = [np.array(ego_init.position, dtype="float64")]
+    if ego_pp.waypoints:
+        waypoints.extend(ego_pp.generate_reference_points_from_waypoint())
+    goal_pos = extract_center_point_of_region(ego_pp.goal)
     waypoints.append(goal_pos)
-    # Add an overshoot waypoint past the goal so the vessel sails *through*
-    # the goal rectangle rather than stopping ~87.5m short (the sim's
-    # final_waypoint_finished_radius = vessel_length / 2).
+
+    # Overshoot waypoint
     approach_dir = goal_pos - waypoints[-2]
     approach_dist = np.linalg.norm(approach_dir)
     if approach_dist > 1e-6:
@@ -97,8 +244,8 @@ def run_single_scenario(scenario_path, dt, config, colav_params):
     waypoints.append(overshoot)
     waypoints = np.array(waypoints, dtype="float64")
 
-    # Goal rectangle for goal-reached check
-    goal_state = pp.goal.state_list[0]
+    # Goal rectangle
+    goal_state = ego_pp.goal.state_list[0]
     goal_shape = goal_state.position
     goal_rect = {
         'length': goal_shape.length,
@@ -106,29 +253,26 @@ def run_single_scenario(scenario_path, dt, config, colav_params):
         'orientation': goal_shape.orientation,
     }
 
-    # Build initial state
+    # Build initial state (normalize to time_step=0)
     init_state = YPState(
-        position=np.array(init.position, dtype="float64"),
-        velocity=init.velocity,
-        orientation=init.orientation,
+        position=np.array(ego_init.position, dtype="float64"),
+        velocity=ego_init.velocity,
+        orientation=ego_init.orientation,
         time_step=0,
     )
 
-    # Create COLAV vessel — use the scenario's actual velocity
-    scenario_params = {**colav_params, 'v': init.velocity}
+    # Create COLAV vessel with the scenario's actual velocity
+    scenario_params = {**colav_params, 'v': ego_init.velocity}
     colav_factory = ColavVesselFactory(dt, config, **scenario_params)
     vessel = colav_factory.get_vessel(
         init_state, waypoints, dt,
-        ship_name=f"COLAV_{pp.planning_problem_id}",
-        vesselid=pp.planning_problem_id,
+        ship_name=f"COLAV_{ego_pp.planning_problem_id}",
+        vesselid=ego_pp.planning_problem_id,
         goal_waypoint=(goal_pos[0], goal_pos[1]),
     )
 
-    # Dynamic and static obstacles
-    dynamic_obstacles = list(scenario.dynamic_obstacles)
-    static_obstacles = list(scenario.static_obstacles)
-
     # Build simulation
+    static_obstacles = list(scenario.static_obstacles)
     simfac = SimulatorFactory(dt)
     simfac.configure_simulation_factory(
         models=[vessel],
@@ -141,20 +285,18 @@ def run_single_scenario(scenario_path, dt, config, colav_params):
 
     sim = simfac.generate_scenario()
 
-    # generate_scenario() deep-copies models, so work with sim.models from here
+    # Wire up controller references
     for m in sim.models:
         if hasattr(m, 'controller') and hasattr(m.controller, 'sim'):
             m.controller.sim = sim
             m.controller.controlled_vessel = m
             m.controller.real_time_pacing = False
-        # Prevent the sim from terminating when the vessel thinks its waypoint
-        # path is done — we rely on GoalReachedStopper + max_runtime instead.
         try:
             m.journey_finished = False
         except AttributeError:
             pass
 
-    # Stop simulation as soon as the vessel enters the goal rectangle
+    # Goal-reached stopper
     stopper = GoalReachedStopper(
         sim.models, goal_pos,
         goal_rect['length'], goal_rect['width'], goal_rect['orientation'],
@@ -162,10 +304,7 @@ def run_single_scenario(scenario_path, dt, config, colav_params):
     stopper.sim = sim
     sim.add_event_listener(stopper)
 
-    # Register a collision flag via the CollisionDetector's collision_methods list.
-    # collision_occurred is reset to False at the start of every state_change() call
-    # and is never explicitly set to True, so checking it after the run always
-    # yields False.  Instead we inject a callback that latches a flag on first hit.
+    # Collision detection
     collision_flag = [False]
     for listener in sim.listeners:
         if hasattr(listener, 'collision_methods'):
@@ -173,15 +312,14 @@ def run_single_scenario(scenario_path, dt, config, colav_params):
                 _f[0] = True
             listener.collision_methods.append(_latch)
 
-    # Shutdown the original (unused) controller's asyncio thread
+    # Shutdown the original (unused) controller
     vessel.controller.shutdown()
 
     # Run simulation
     sim.display_run()
-
     runtime = time.time() - t0
 
-    # Extract metrics from the actual controller that ran
+    # Extract metrics
     ctrl = sim.models[0].controller
     metrics = extract_metrics(
         controller=ctrl,
@@ -192,15 +330,14 @@ def run_single_scenario(scenario_path, dt, config, colav_params):
         dt=dt,
     )
     metrics['collision_detected'] = collision_flag[0]
-    metrics['ego_init_x'] = float(init.position[0])
-    metrics['ego_init_y'] = float(init.position[1])
-    metrics['ego_init_orientation'] = init.orientation
-    metrics['ego_init_velocity'] = init.velocity
+    metrics['ego_init_x'] = float(ego_init.position[0])
+    metrics['ego_init_y'] = float(ego_init.position[1])
+    metrics['ego_init_orientation'] = ego_init.orientation
+    metrics['ego_init_velocity'] = ego_init.velocity
+    metrics['num_traffic_vessels'] = len(traffic_pps)
     metrics['runtime_sec'] = runtime
 
-    # Shutdown controller (cleanup asyncio thread)
     ctrl.shutdown()
-
     return metrics
 
 
@@ -216,14 +353,15 @@ def generate_plots(df, output_dir):
         print("No valid results to plot")
         return
 
+    cs_val = 300.0
+
     # 1. CPA Distribution
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.hist(df_valid['cpa_distance'], bins=50, edgecolor='black', alpha=0.7)
-    cs_val = 300.0
     ax.axvline(x=cs_val, color='red', linestyle='--', label=f'Cs = {cs_val}m')
     ax.set_xlabel('Closest Point of Approach (m)')
     ax.set_ylabel('Number of Scenarios')
-    ax.set_title(f'CPA Distribution (n={len(df_valid)})')
+    ax.set_title(f'CPA Distribution — MarineCadastre (n={len(df_valid)})')
     ax.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'cpa_distribution.png'), dpi=150)
@@ -261,10 +399,10 @@ def generate_plots(df, output_dir):
         colors = ['steelblue', 'coral', 'orange']
         ax.bar(labels, means, color=colors, edgecolor='black')
         ax.set_ylabel('Mean Fraction of Simulation Time')
-        ax.set_title('Average Time Spent in Each Automaton State')
+        ax.set_title('Average Time in Each Automaton State — MarineCadastre')
         ax.set_ylim(0, 1)
-        for i, m in enumerate(means):
-            ax.text(i, m + 0.02, f"{m:.1%}", ha='center', fontsize=12)
+        for i, m_val in enumerate(means):
+            ax.text(i, m_val + 0.02, f"{m_val:.1%}", ha='center', fontsize=12)
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, 'state_time_distribution.png'), dpi=150)
         plt.close()
@@ -278,7 +416,7 @@ def generate_plots(df, output_dir):
                labels=[f'Reached ({reached})', f'Not Reached ({not_reached})'],
                colors=['seagreen', 'lightcoral'],
                autopct='%1.1f%%', startangle=90)
-        ax.set_title('Goal Reached Rate')
+        ax.set_title('Goal Reached Rate — MarineCadastre')
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, 'goal_reached_rate.png'), dpi=150)
         plt.close()
@@ -291,7 +429,7 @@ def generate_plots(df, output_dir):
         ax.boxplot(data, labels=encounter_types, patch_artist=True)
         ax.axhline(y=cs_val, color='red', linestyle='--', label=f'Cs = {cs_val}m')
         ax.set_ylabel('CPA Distance (m)')
-        ax.set_title('CPA by Encounter Type')
+        ax.set_title('CPA by Encounter Type — MarineCadastre')
         ax.legend()
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, 'cpa_by_encounter.png'), dpi=150)
@@ -301,18 +439,25 @@ def generate_plots(df, output_dir):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch COLAV evaluation")
+    parser = argparse.ArgumentParser(
+        description="Batch COLAV evaluation on MarineCadastre scenarios")
     parser.add_argument('--scenarios-dir',
-                        default='/app/scenarios/HandcraftedTwoVesselEncounters_01_24',
-                        help='Directory with XML scenario files')
-    parser.add_argument('--output-dir', default='/app/usv-navigation/output/batch_eval',
+                        default='/app/scenarios/MarineCadastre_01_19',
+                        help='Root MarineCadastre directory')
+    parser.add_argument('--region', default='all',
+                        choices=['all', 'Florida', 'MiddleEastCoast', 'UpperWestCoast'],
+                        help='Sub-region to evaluate (default: all)')
+    parser.add_argument('--output-dir',
+                        default='/app/usv-navigation/output/batch_eval_marine_cadastre',
                         help='Output directory for results')
     parser.add_argument('--limit', type=int, default=0,
-                        help='Limit to first N scenarios (0 = all)')
+                        help='Limit to first N multi-vessel scenarios (0 = all)')
     parser.add_argument('--start', type=int, default=0,
                         help='Start from scenario index N')
-    parser.add_argument('--max-runtime', type=int, default=3000,
+    parser.add_argument('--max-runtime', type=int, default=5000,
                         help='Max simulation steps per scenario')
+    parser.add_argument('--min-obstacles', type=int, default=1,
+                        help='Minimum number of traffic vessels (default: 1)')
     parser.add_argument('--resume', action='store_true',
                         help='Skip already-completed scenarios if CSV exists')
     parser.add_argument('--dt', type=float, default=1.0)
@@ -321,12 +466,11 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     csv_path = os.path.join(args.output_dir, 'results.csv')
 
-    # Discover scenarios sorted by T-number
-    xml_files = sorted(
-        glob.glob(os.path.join(args.scenarios_dir, '*.xml')),
-        key=lambda p: int(os.path.basename(p).split('T-')[1].replace('.xml', '')),
-    )
-    print(f"Found {len(xml_files)} scenario files")
+    # Discover multi-vessel scenarios
+    print(f"Scanning {args.scenarios_dir} (region={args.region}) "
+          f"for scenarios with {args.min_obstacles}+ traffic vessels...")
+    xml_files = discover_scenarios(args.scenarios_dir, args.region, args.min_obstacles)
+    print(f"Found {len(xml_files)} scenarios with {args.min_obstacles}+ traffic vessels")
 
     # Apply start/limit
     xml_files = xml_files[args.start:]
@@ -352,21 +496,21 @@ def main():
         if sid in completed_ids:
             continue
 
-        print(f"\n[{i + 1}/{len(xml_files)}] {sid} ...", end=" ", flush=True)
+        print(f"\n[{i + 1}/{len(xml_files)}] {sid} ...", flush=True)
         try:
             metrics = run_single_scenario(xml_path, args.dt, config, colav_params)
             results.append(metrics)
-            print(f"OK  steps={metrics['total_steps']}  "
+            print(f"  OK  steps={metrics['total_steps']}  "
                   f"cpa={metrics['cpa_distance']:.0f}m  "
                   f"goal={'Y' if metrics['goal_reached'] else 'N'}  "
                   f"collision={'Y' if metrics['collision_detected'] else 'N'}  "
+                  f"traffic={metrics['num_traffic_vessels']}  "
                   f"{metrics['runtime_sec']:.1f}s")
         except Exception as e:
             results.append({'scenario_id': sid, 'error': str(e)})
-            print(f"FAIL: {e}")
+            print(f"  FAIL: {e}")
             traceback.print_exc()
 
-        # Free lingering event loops / file descriptors
         gc.collect()
 
         # Save incrementally every 10 scenarios
@@ -383,7 +527,6 @@ def main():
     goals = int(valid['goal_reached'].sum()) if 'goal_reached' in valid.columns else '?'
     print(f"Total: {len(df)} scenarios, {collisions} collisions, {goals} goals reached")
 
-    # Generate summary plots
     generate_plots(df, args.output_dir)
 
 

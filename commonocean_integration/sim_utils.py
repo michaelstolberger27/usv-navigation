@@ -15,7 +15,7 @@ from Simulator.EventListener import EventListener
 from rules.common.helper import load_yaml
 
 
-def interpolate_dynamic_obstacles(scenario, target_dt):
+def interpolate_dynamic_obstacles(scenario, target_dt, min_steps=3000):
     """Interpolate dynamic obstacle trajectories to match the simulation dt.
 
     CommonOcean scenarios define trajectories at scenario.dt intervals (e.g.
@@ -23,14 +23,19 @@ def interpolate_dynamic_obstacles(scenario, target_dt):
     indexes traffic via state_at_time(sim_step), causing a time-scale
     mismatch.  This function linearly interpolates each trajectory so that
     consecutive integer time steps correspond to target_dt seconds.
+
+    If the resulting trajectory is shorter than min_steps, it is extrapolated
+    at constant velocity and heading so the simulation doesn't terminate
+    prematurely when the ego vessel's avoidance detour takes longer than
+    the original traffic trajectory.
     """
     scenario_dt = scenario.dt
     if scenario_dt is None or abs(scenario_dt - target_dt) < 1e-6:
-        return  # already matching
-
-    factor = int(round(scenario_dt / target_dt))
-    if factor <= 1:
-        return
+        factor = 1
+    else:
+        factor = int(round(scenario_dt / target_dt))
+        if factor <= 1:
+            factor = 1
 
     for dyn_obs in scenario.dynamic_obstacles:
         pred = dyn_obs.prediction
@@ -51,21 +56,40 @@ def interpolate_dynamic_obstacles(scenario, target_dt):
         vel = np.array([s.velocity for s in all_states])
         orient = np.unwrap([s.orientation for s in all_states])
 
-        # New fine-grained time steps (e.g. 0,1,2,...,1700 instead of 0,1,...,170)
+        # Map old integer time steps to the new scale
+        old_ts_scaled = old_ts * factor
+
+        # Extend to at least min_steps by extrapolating at constant velocity/heading
+        last_t = old_ts_scaled[-1]
+        end_t = max(last_t, min_steps)
+
+        # New fine-grained time steps
         new_ts = np.arange(
-            old_ts[0] * factor,
-            (old_ts[-1] + 1) * factor,
+            old_ts_scaled[0],
+            end_t + 1,
             1,
             dtype=float,
         )
 
-        # Map old integer time steps to the new scale
-        old_ts_scaled = old_ts * factor
-
+        # Interpolate within original range; np.interp clamps beyond bounds,
+        # which effectively extrapolates at the last value for vel/orient.
+        # For position, we need to actively extrapolate using last vel/heading.
         new_px = np.interp(new_ts, old_ts_scaled, pos_x)
         new_py = np.interp(new_ts, old_ts_scaled, pos_y)
         new_vel = np.interp(new_ts, old_ts_scaled, vel)
         new_orient = np.interp(new_ts, old_ts_scaled, orient)
+
+        # Extrapolate positions beyond the original trajectory
+        if end_t > last_t:
+            extrap_mask = new_ts > last_t
+            if np.any(extrap_mask):
+                last_v = vel[-1]
+                last_heading = orient[-1]
+                last_px = pos_x[-1]
+                last_py = pos_y[-1]
+                dt_extra = new_ts[extrap_mask] - last_t
+                new_px[extrap_mask] = last_px + last_v * np.cos(last_heading) * dt_extra
+                new_py[extrap_mask] = last_py + last_v * np.sin(last_heading) * dt_extra
 
         StateClass = type(init)
 

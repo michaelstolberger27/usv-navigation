@@ -28,17 +28,20 @@ def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
     signals = controller.signal_tracker
     total_steps = controller.stepped
 
-    # CPA against the first dynamic obstacle
-    dyn_obs = scenario.dynamic_obstacles[0] if scenario.dynamic_obstacles else None
-    if dyn_obs is not None:
-        cpa_dist, cpa_step = compute_cpa(positions, dyn_obs, total_steps)
-        traffic_init = dyn_obs.initial_state
+    # CPA against all dynamic obstacles — report the minimum
+    cpa_dist, cpa_step = float('inf'), 0
+    traffic_init_x = traffic_init_y = traffic_init_orientation = float('nan')
+    closest_obs = None
+    for dyn_obs in (scenario.dynamic_obstacles or []):
+        d, s = compute_cpa(positions, dyn_obs, total_steps)
+        if d < cpa_dist:
+            cpa_dist, cpa_step = d, s
+            closest_obs = dyn_obs
+    if closest_obs is not None:
+        traffic_init = closest_obs.initial_state
         traffic_init_x = traffic_init.position[0]
         traffic_init_y = traffic_init.position[1]
         traffic_init_orientation = traffic_init.orientation
-    else:
-        cpa_dist, cpa_step = float('inf'), 0
-        traffic_init_x = traffic_init_y = traffic_init_orientation = float('nan')
 
     # Goal reached
     goal_reached, goal_step = check_goal_reached(
@@ -79,15 +82,32 @@ def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
         if yr > max_yaw:
             max_yaw = yr
 
-    # Encounter type classification
-    if dyn_obs is not None and positions:
+    # Rule 17b detection: port turn during avoidance
+    # When S1→S2 transition occurs, check if the heading change over the
+    # next few steps is positive (port) rather than negative (starboard).
+    rule_17b = False
+    for i in range(1, len(states)):
+        if states[i] == 'COLLISION_AVOIDANCE' and states[i - 1] == 'WAYPOINT_REACHING':
+            # Compare heading at avoidance entry vs a few steps later
+            psi_entry = positions[i][2]
+            lookahead = min(i + 20, len(positions) - 1)
+            psi_later = positions[lookahead][2]
+            delta_psi = np.arctan2(np.sin(psi_later - psi_entry), np.cos(psi_later - psi_entry))
+            if delta_psi > 0.01:  # positive = port turn
+                rule_17b = True
+                break
+
+    # Initial ego-obstacle distance (for checking paper Assumption 1)
+    if closest_obs is not None and positions:
         ego_pos = np.array(positions[0][:2])
         ego_heading = positions[0][2]
         obs_pos = np.array([traffic_init_x, traffic_init_y])
+        init_distance = np.linalg.norm(ego_pos - obs_pos)
         encounter = classify_encounter(
             ego_pos, ego_heading, obs_pos, traffic_init_orientation,
         )
     else:
+        init_distance = float('nan')
         encounter = 'unknown'
 
     return {
@@ -108,6 +128,8 @@ def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
         'traffic_init_y': traffic_init_y,
         'traffic_init_orientation': traffic_init_orientation,
         'encounter_type': encounter,
+        'rule_17b_invoked': rule_17b,
+        'init_distance': init_distance,
     }
 
 

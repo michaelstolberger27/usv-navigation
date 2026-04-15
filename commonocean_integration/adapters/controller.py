@@ -219,6 +219,14 @@ class HybridAutomatonController(VesselController):
                 print(f"  [AVOIDANCE RECOVERY] Skipped to waypoint index {idx}")
         self._last_automaton_state = state_name
 
+        # Prevent the sim from terminating on waypoint-path completion.
+        # We rely on GoalReachedStopper + max_runtime instead.
+        if self.controlled_vessel is not None:
+            try:
+                self.controlled_vessel.journey_finished = False
+            except AttributeError:
+                pass
+
         if self.stepped % 10 == 1:
             u_str = f"{u:.3f}" if ctx is not None else "N/A"
             n_obs = len(cfg['obstacles']) if ctx is not None else 0

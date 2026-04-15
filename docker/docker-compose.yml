@@ -14,6 +14,6 @@ services:
       - ../examples:/app/usv-navigation/examples
       - ../commonocean_integration:/app/usv-navigation/commonocean_integration
       - ../output:/app/usv-navigation/output        # persist output files
-      - ../../commonocean-scenarios/scenarios/HandcraftedTwoVesselEncounters_01_24:/app/scenarios
+      - ../../commonocean-scenarios/scenarios:/app/scenarios
     stdin_open: true
     tty: true

@@ -454,6 +454,8 @@ def main():
                         help='Limit to first N multi-vessel scenarios (0 = all)')
     parser.add_argument('--start', type=int, default=0,
                         help='Start from scenario index N')
+    parser.add_argument('--scenario-ids', nargs='+', default=None,
+                        help='Run only specific scenario IDs')
     parser.add_argument('--max-runtime', type=int, default=5000,
                         help='Max simulation steps per scenario')
     parser.add_argument('--min-obstacles', type=int, default=1,
@@ -472,11 +474,18 @@ def main():
     xml_files = discover_scenarios(args.scenarios_dir, args.region, args.min_obstacles)
     print(f"Found {len(xml_files)} scenarios with {args.min_obstacles}+ traffic vessels")
 
-    # Apply start/limit
-    xml_files = xml_files[args.start:]
-    if args.limit > 0:
-        xml_files = xml_files[:args.limit]
-    print(f"Running {len(xml_files)} scenarios (start={args.start}, limit={args.limit})")
+    # Filter to specific scenario IDs if requested
+    if args.scenario_ids:
+        id_set = set(args.scenario_ids)
+        xml_files = [p for p in xml_files
+                     if os.path.basename(p).replace('.xml', '') in id_set]
+        print(f"Filtered to {len(xml_files)} scenarios matching --scenario-ids")
+    else:
+        # Apply start/limit
+        xml_files = xml_files[args.start:]
+        if args.limit > 0:
+            xml_files = xml_files[:args.limit]
+        print(f"Running {len(xml_files)} scenarios (start={args.start}, limit={args.limit})")
 
     # Resume support
     completed_ids = set()

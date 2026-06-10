@@ -3,7 +3,7 @@ Batch evaluation of COLAV automaton across CommonOcean scenarios.
 
 Usage inside the Docker container:
     cd /app/commonocean-sim/src
-    python3 /app/usv-navigation/commonocean/scripts/batch_evaluate.py [OPTIONS]
+    python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate.py [OPTIONS]
 
 Options:
     --scenarios-dir PATH   Directory containing XML scenario files

@@ -43,11 +43,31 @@ all three new-only failures have `avoidance_activations=0`, so the V1 change can
 
 ## 3. Open issues (ranked)
 
-1. **`ZAM_AAA-1_20240121_T-1022` collides** (Handcrafted, CPA 161.8 m, goal not reached) — the
-   single remaining collision. Note: `output/batch_eval_t1022/` actually contains a run of
-   **T-102**, not T-1022 (ID substring mix-up), so this scenario has *not* been investigated yet.
-   Use `--scenario-ids ZAM_AAA-1_20240121_T-1022` (exact match) and `animate_scenario.py` to see
-   what goes wrong.
+1. **`ZAM_AAA-1_20240121_T-1022` — INVESTIGATED 2026-06-10, root cause known, fix not yet applied.**
+   5 reruns: 2 collisions, 3 passes with CPA 134/267/280 m — all below Cs=300 m, always 3
+   avoidance activations. Outcomes are **non-deterministic** (the controller's background asyncio
+   thread makes transition timing wall-clock dependent; in a chattering regime small timing
+   differences diverge into collision-or-not).
+   **Geometry:** crossing_from_port with the traffic vessel ~20% faster (6.7 vs 5.5 m/s) and
+   aimed at the ego's future track. Frames + transition log show the failure mechanism:
+   - S2 entered, V1 placed, ship turns; ¬L1∨¬L2 fires quickly → S3.
+   - **G23 resume uses `static_only` unsafe region**, which clears as soon as the LOS misses the
+     obstacle's *current* Cs circle → S3→S1 within ~3–4 sim steps.
+   - G11∧G22 (TCPA/DCPA-predictive) immediately see the still-converging obstacle → S2 again,
+     V1 recomputed from scratch (can flip sides; log shows a hard stbd dive to ψ=−85° then a turn
+     back). The predictive-trigger / static-resume asymmetry guarantees cycling in any geometry
+     where the obstacle keeps converging — T-1022 is just the worst case in the set.
+   - Final S2 stint places V1 ~3.8 km away nearly along the goal bearing (swept hull is ~1.2 km
+     long at max_horizon≈174 s × 6.7 m/s), so "avoidance" degenerates to cruising at the goal while
+     the faster vessel crosses at 130–280 m.
+   **Candidate fixes (behavioural — need batch re-validation before commit):**
+   a. Hysteresis on resume: require G22 risk index < K_off (e.g. 0.25) with trigger at K_on=0.35,
+      or a minimum dwell time in S3, so the ship stays committed to evasion while risk persists.
+   b. On S2 re-entry within a short window, keep the previous V1 turn side (no side flips).
+   c. Longer-term: V1 selection should prefer crossing *astern* of a faster crossing vessel.
+   The deterministic-controller question (tick-synchronous instead of wall-clock asyncio) is
+   bigger but would also make all batch numbers reproducible — relevant for the portfolio writeup.
+   Artifacts: `output/t1022_investigation/` (GIF + 5 batch reruns).
 2. **`C-USA_UWC-1_2019012409` collides** (MarineCadastre, CPA ≈ 62 m) — pre-existing in both V1
    variants; avoidance activates but fails. Likely needs G22/threshold tuning, not V1 work.
 3. **4 remaining Handcrafted goal failures** (T-584, T-830, T-838, T-1289) — no collisions, just

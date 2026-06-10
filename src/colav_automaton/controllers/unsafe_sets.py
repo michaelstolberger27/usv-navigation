@@ -51,15 +51,18 @@ def _compute_swept_obstacles(
     dynamic_obstacles: List[DynamicObstacle],
     ship_x: float,
     ship_v: float,
+    max_horizon: Optional[float] = None,
 ) -> List[DynamicObstacle]:
     """
     Expand obstacle list with predicted future positions to create a swept region.
 
-    For moving obstacles, samples the obstacle's predicted trajectory up to TCPA.
-    The convex hull of all sampled Cs-circles approximates the Minkowski sum
-    from paper eq 27.  Note: the create_unsafe_set API also internally predicts
-    positions from obstacle velocity, so these extra samples reinforce coverage
-    for intermediate points along the trajectory.
+    For moving obstacles, samples the obstacle's predicted trajectory up to TCPA
+    (or max_horizon if provided).  The convex hull of all sampled Cs-circles
+    approximates the Minkowski sum from paper eq 27.
+
+    max_horizon caps the sweep at the relevant avoidance window rather than the
+    full TCPA, which can be very large for slow obstacles and would place V1
+    unreachably far along their trajectory.
     """
     obstacles = []
     try:
@@ -72,7 +75,7 @@ def _compute_swept_obstacles(
             obstacles.append(obs)
 
             if obs.velocity > 0.1 and tcpa > 0:
-                sweep_horizon = tcpa
+                sweep_horizon = tcpa if max_horizon is None else min(tcpa, max_horizon)
                 n_samples = min(max(int(sweep_horizon / 10.0), 3), 20)
 
                 for i in range(1, n_samples + 1):
@@ -124,7 +127,8 @@ def get_unsafe_set_vertices(
     dsf: Optional[float] = None,
     ship_psi: float = 0.0,
     ship_v: float = 12.0,
-    use_swept_region: bool = True
+    use_swept_region: bool = True,
+    max_horizon: Optional[float] = None,
 ) -> Optional[List[List[float]]]:
     """
     Generate dynamic unsafe set vertices using the unsafe-set API.
@@ -145,6 +149,9 @@ def get_unsafe_set_vertices(
         use_swept_region: If True, creates swept region for moving obstacles
             (use for V1 computation). If False, uses current positions only
             (use for G11 guard checks).
+        max_horizon: Cap on the swept-region horizon (seconds). Limits sweep
+            to the relevant avoidance window so V1 stays reachable. None means
+            use full TCPA (original behaviour).
 
     Returns:
         List[List[float]]: Convex hull vertices of unsafe regions, or None if empty
@@ -158,7 +165,8 @@ def get_unsafe_set_vertices(
 
     if use_swept_region:
         obstacles_for_computation = _compute_swept_obstacles(
-            agent, dynamic_obstacles, ship_x, ship_v
+            agent, dynamic_obstacles, ship_x, ship_v,
+            max_horizon=max_horizon,
         )
     else:
         # Pass obstacles with actual velocity — the API internally predicts

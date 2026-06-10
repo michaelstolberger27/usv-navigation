@@ -30,15 +30,20 @@ def reset_enter_avoidance(ctx: RuntimeContext) -> RuntimeContext:
     v1_Cs_margin = cfg.get('v1_Cs_margin', 0.25 * Cs)
     v1_Cs = Cs + v1_Cs_margin
 
+    # Cap the swept-region horizon to the avoidance window so V1 stays
+    # reachable.  Full TCPA can be 500+ s for slow obstacles, placing V1
+    # unreachably far along their trajectory.  Using 3*dsafe/v gives the
+    # ship ~3× its braking distance as the lookahead window.
+    max_horizon = max(60.0, 3.0 * dsafe / v)
+
     def vertex_provider(px, py, obstacles_list, cs, heading):
-        # V1 is computed from the obstacle's current unsafe set (no swept
-        # region) — the ship steers around where the obstacle IS now.
-        # The swept region would place V1 far along the obstacle's trajectory,
-        # making it unreachable.
+        # V1 is computed from the swept unsafe set over the avoidance window
+        # (capped at max_horizon), ensuring the virtual waypoint clears the
+        # obstacle's trajectory rather than only its current position.
         vertices = get_unsafe_set_vertices(
             px, py, obstacles_list, v1_Cs,
             dsf=dsafe, ship_psi=heading, ship_v=v,
-            use_swept_region=False
+            use_swept_region=True, max_horizon=max_horizon,
         )
         if vertices is not None:
             return vertices

@@ -25,6 +25,7 @@ from Environment.SurfaceVessel import SurfaceVessel
 
 from colav_automaton import ColavAutomaton
 from colav_automaton.controllers import HeadingControlProvider
+from colav_automaton.controllers.unsafe_sets import compute_unified_unsafe_region
 
 
 class HybridAutomatonController(VesselController):
@@ -94,6 +95,7 @@ class HybridAutomatonController(VesselController):
         self.position_tracker = []  # Track actual vessel positions
         self.state_tracker = []  # Track automaton states
         self.v1_tracker = []  # Track virtual waypoints (V1) during avoidance
+        self.unsafe_set_tracker = []  # Track unsafe set polygon coords each step
         self.real_time_pacing = True  # sleep(dt) each tick for display sync
         self._last_waypoint = None  # track waypoint changes
         self._last_automaton_state = None  # detect S2/S3 → S1 transitions
@@ -194,6 +196,24 @@ class HybridAutomatonController(VesselController):
             state_name = 'WAYPOINT_REACHING'
             self.state_tracker.append(state_name)
             self.v1_tracker.append(None)
+
+        # Track unsafe set polygon for visualisation (best-effort, skip on error)
+        try:
+            obstacles = cfg['obstacles'] if ctx is not None else []
+            if obstacles:
+                poly = compute_unified_unsafe_region(
+                    pos_x, pos_y, obstacles, self.Cs,
+                    ship_psi=psi, ship_v=self.v
+                )
+                if poly is not None:
+                    coords = list(poly.exterior.coords)
+                    self.unsafe_set_tracker.append(coords)
+                else:
+                    self.unsafe_set_tracker.append(None)
+            else:
+                self.unsafe_set_tracker.append(None)
+        except Exception:
+            self.unsafe_set_tracker.append(None)
 
         # After avoidance (S2/S3 → S1), skip past intermediate waypoints
         # that are now behind the vessel so it doesn't backtrack.

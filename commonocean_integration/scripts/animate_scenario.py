@@ -35,7 +35,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Rectangle, FancyArrow
+from matplotlib.patches import Circle, Rectangle, FancyArrow, Polygon as MplPolygon
 from matplotlib.transforms import Affine2D
 from matplotlib.animation import FuncAnimation
 from matplotlib.lines import Line2D
@@ -264,6 +264,7 @@ def run_scenario(scenario_path, dt, config, colav_params, dataset):
         "ego_positions": list(ctrl.position_tracker),
         "ego_states": list(ctrl.state_tracker),
         "ego_v1s": list(ctrl.v1_tracker),
+        "unsafe_sets": list(ctrl.unsafe_set_tracker),
         "traffic_positions_list": traffic_positions_list,
         "goal_pos": goal_pos,
         "goal_shape": goal_shape,
@@ -278,12 +279,14 @@ def run_scenario(scenario_path, dt, config, colav_params, dataset):
     return result
 
 
-def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
+def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450,
+                     xlim=None, ylim=None):
     """Create an animated GIF from simulation data."""
     ego_pos = np.array([[p[0], p[1]] for p in data["ego_positions"]])
     ego_psi = np.array([p[2] for p in data["ego_positions"]])
     ego_states = data["ego_states"]
     ego_v1s = data["ego_v1s"]
+    unsafe_sets = data.get("unsafe_sets", [])
     traffic_list = data["traffic_positions_list"]
     goal_pos = data["goal_pos"]
     goal_shape = data["goal_shape"]
@@ -299,17 +302,20 @@ def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
     else:
         indices = list(range(n_steps))
 
-    # Compute plot bounds
-    all_x = list(ego_pos[:, 0])
-    all_y = list(ego_pos[:, 1])
-    for tpos in traffic_list:
-        all_x.extend(tpos[:, 0])
-        all_y.extend(tpos[:, 1])
-    all_x.append(goal_pos[0])
-    all_y.append(goal_pos[1])
-    margin = max(Cs * 0.5, 200)
-    xlim = (min(all_x) - margin, max(all_x) + margin)
-    ylim = (min(all_y) - margin, max(all_y) + margin)
+    # Compute plot bounds (use fixed limits if provided, otherwise auto)
+    if xlim is None or ylim is None:
+        all_x = list(ego_pos[:, 0])
+        all_y = list(ego_pos[:, 1])
+        for tpos in traffic_list:
+            all_x.extend(tpos[:, 0])
+            all_y.extend(tpos[:, 1])
+        all_x.append(goal_pos[0])
+        all_y.append(goal_pos[1])
+        margin = max(Cs * 0.5, 200)
+        if xlim is None:
+            xlim = (min(all_x) - margin, max(all_x) + margin)
+        if ylim is None:
+            ylim = (min(all_y) - margin, max(all_y) + margin)
 
     # State colours
     state_colors = {
@@ -361,16 +367,15 @@ def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
         traffic_markers.append(marker)
         safety_circles.append(None)
 
+    # Unsafe set polygon (replaced each frame)
+    unsafe_set_patch = [None]
+
     # Ego elements
     ego_trail, = ax.plot([], [], "-", color="royalblue", linewidth=1.5, alpha=0.6)
     ego_marker, = ax.plot([], [], "o", color="royalblue", markersize=10, zorder=15)
     ego_arrow_patch = [None]
     v1_marker, = ax.plot([], [], "m^", markersize=10, zorder=18)
     v1_line, = ax.plot([], [], "m--", linewidth=1, alpha=0.5)
-    cpa_line, = ax.plot([], [], "k--", linewidth=1, alpha=0.5)
-    cpa_text = ax.text(0, 0, "", fontsize=8, ha="center",
-                       bbox=dict(boxstyle="round,pad=0.2", facecolor="yellow", alpha=0.7),
-                       visible=False, zorder=25)
 
     state_text = ax.text(
         0.02, 0.97, "", transform=ax.transAxes, fontsize=13,
@@ -378,7 +383,7 @@ def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.85),
     )
     time_text = ax.text(
-        0.02, 0.90, "", transform=ax.transAxes, fontsize=11,
+        0.02, 0.85, "", transform=ax.transAxes, fontsize=11,
         verticalalignment="top",
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.85),
     )
@@ -396,13 +401,10 @@ def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
         Line2D([0], [0], color="royalblue", linewidth=2, label="S1: Waypoint"),
         Line2D([0], [0], color="red", linewidth=2, label="S2: Avoidance"),
         Line2D([0], [0], color="orange", linewidth=2, label="S3: Constant"),
+        MplPolygon([[0, 0]], closed=True, facecolor="purple", alpha=0.25,
+                   edgecolor="purple", linewidth=1.5, label="Unsafe set"),
     ]
     ax.legend(handles=legend_elements, loc="upper right", fontsize=9)
-
-    # Track CPA across all traffic
-    min_cpa = [float("inf")]
-    min_cpa_step = [0]
-    min_cpa_traffic_idx = [0]
 
     def update(frame):
         idx = indices[frame]
@@ -439,11 +441,6 @@ def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
                 traffic_markers[ti].set_data([tx], [ty])
 
                 # Safety circle around closest traffic only
-                dist = np.hypot(x - tx, y - ty)
-                if dist < min_cpa[0]:
-                    min_cpa[0] = dist
-                    min_cpa_step[0] = idx
-                    min_cpa_traffic_idx[0] = ti
             else:
                 traffic_markers[ti].set_data([], [])
 
@@ -469,21 +466,19 @@ def animate_scenario(data, scenario_id, output_path, fps=15, max_frames=450):
                 )
                 ax.add_patch(safety_circles[closest_ti])
 
-        # CPA line
-        ci = min_cpa_step[0]
-        cti = min_cpa_traffic_idx[0]
-        if ci <= idx and ci < len(traffic_list[cti]) if traffic_list else False:
-            ex, ey = ego_pos[ci]
-            cx, cy = traffic_list[cti][ci]
-            cpa_line.set_data([ex, cx], [ey, cy])
-            mid_x = (ex + cx) / 2
-            mid_y = (ey + cy) / 2
-            cpa_text.set_position((mid_x, mid_y))
-            cpa_text.set_text(f"CPA={min_cpa[0]:.0f}m")
-            cpa_text.set_visible(True)
-        else:
-            cpa_line.set_data([], [])
-            cpa_text.set_visible(False)
+        # Unsafe set polygon
+        if unsafe_set_patch[0] is not None:
+            unsafe_set_patch[0].remove()
+            unsafe_set_patch[0] = None
+        if idx < len(unsafe_sets) and unsafe_sets[idx] is not None:
+            coords = np.array(unsafe_sets[idx])
+            patch = MplPolygon(
+                coords, closed=True,
+                facecolor="purple", alpha=0.20,
+                edgecolor="purple", linewidth=1.5, zorder=4,
+            )
+            ax.add_patch(patch)
+            unsafe_set_patch[0] = patch
 
         # V1 waypoint
         v1 = ego_v1s[idx] if idx < len(ego_v1s) else None
@@ -545,6 +540,10 @@ def main():
     parser.add_argument("--dt", type=float, default=1.0)
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--max-frames", type=int, default=200)
+    parser.add_argument("--xlim", type=float, nargs=2, default=None,
+                        metavar=("XMIN", "XMAX"), help="Fixed x-axis limits (m)")
+    parser.add_argument("--ylim", type=float, nargs=2, default=None,
+                        metavar=("YMIN", "YMAX"), help="Fixed y-axis limits (m)")
     args = parser.parse_args()
 
     # Apply dataset defaults, then any explicit overrides
@@ -577,6 +576,7 @@ def main():
             animate_scenario(
                 data, scenario_id, out_path,
                 fps=args.fps, max_frames=args.max_frames,
+                xlim=args.xlim, ylim=args.ylim,
             )
         except Exception as e:
             print(f"  FAILED: {e}")

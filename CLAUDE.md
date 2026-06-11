@@ -12,7 +12,14 @@ Hybrid-automaton-based, COLREGs-compliant collision avoidance for USVs. This fil
   Anything that imports `commonocean`/`commonroad`/the sim lives here, never in `src/`.
 - **3-state hybrid automaton** (`automaton.py`, `guards/`, `resets/`, `invariants/`): S1 waypoint-reaching,
   S2 collision-avoidance (steers to virtual waypoint V1), S3 constant-control (hold heading until LOS clears).
-  Transitions: S1→S2 `G11 ∧ G22`, S2→S3 `¬L1 ∨ ¬L2`, S3→S1 `¬G23`.
+  Transitions: S1→S2 `G11 ∧ G22`, S2→S3 `¬L1 ∨ ¬L2`, S3→S1 `¬G23 ∧ RI<K_off`.
+- **Two runtimes, one automaton.** `ColavAutomaton` (async, wall-clock; CommonOcean batches were
+  validated on it) and `SyncColavRuntime` (`sync_runtime.py`, deterministic tick-synchronous —
+  bit-identical reruns; prefer it for new integrations). To make both possible, `dynamics/` and
+  `resets/` define **plain functions** (`*_flow`, `apply_*`) with the framework decorators applied
+  explicitly at the module bottom — do not merge them back into `@decorator` form (the decorators
+  type-check the async framework's Context and would lock out the sync runtime). Guards are
+  called via `.func` by the sync executive.
 - **`colav_unsafe_set` API has two entry points** in `controllers/unsafe_sets.py` — do not conflate:
   - `get_unsafe_set_vertices` → hull *vertices*; for G11 guards and V1. Has `use_swept_region`/`max_horizon`.
   - `compute_unified_unsafe_region` → shapely `Polygon`; for guard checks and visualisation. Has

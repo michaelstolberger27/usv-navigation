@@ -138,10 +138,25 @@ for the maneuver tail.**
 **Phase 3 — interactive web demo.** Browser sandbox (drag obstacles, watch RI/states/V1 live);
 FastAPI+websocket, or Pyodide client-side for GitHub Pages. Shares the AIS-replay frontend.
 
-**Phase 4 — deterministic runtime.** Replace the wall-clock asyncio controller with a
-tick-synchronous executive. Small, high leverage: makes every batch number reproducible
-(T-1022 proved outcomes currently vary run-to-run) and is the prerequisite for any
-verification claim. Natural candidate for targeted C++/Rust if desired.
+**Phase 4 — deterministic runtime (core DONE 2026-06-11; CommonOcean adapter migration
+remains).** `SyncColavRuntime` (`src/colav_automaton/sync_runtime.py`): tick-synchronous
+executive sharing the exact guards/resets/flows with the async path (plain implementations
+split from the framework decorators — see CLAUDE.md, the split is load-bearing). Prescribed-
+time clock runs on sim time since transition. Verified: bit-identical reruns (unit tests +
+the real-strait replay), avoid/hold/resume cycle on a scripted head-on, async test suite
+untouched. AIS replay runner migrated — the yaw-clamp and pace workarounds are gone (control
+recomputes every tick by construction; `pace` is now display-only).
+**Equivalence picture:** sparse traffic matches the async results (bundled sample: goal Y,
+CPA 1178 m vs async 1162–1165 m). Dense traffic now FAILS deterministically instead of
+passing by luck: on the strait recording the ego enters S2, actually steers toward the
+degenerate-hull V1 (async never did — its control was stale), then deadlocks in S3 off-goal
+(goal N, CPA 68 m, identical every rerun). This is open issue §3.3 reproduced exactly — the
+strait JSONL is now the regression fixture for those fixes.
+**Remaining for phase 4:** (a) migrate `commonocean_integration/adapters/controller.py` to
+the sync runtime — needs a `step` variant with externally-integrated state (the sim's vessel
+model owns integration; runtime should evaluate control+guards only); (b) full Handcrafted
+batch A/B async-vs-sync to certify the validated numbers carry over; (c) only then make sync
+the default everywhere.
 
 **Phase 5 — GPU-vectorized Monte Carlo evaluator.** JAX or NVIDIA Warp re-implementation of
 the lightweight parts (kinematics, guards, risk index, V1 geometry) to run thousands of

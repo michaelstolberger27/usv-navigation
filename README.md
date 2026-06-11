@@ -43,7 +43,8 @@ This project implements a **3-state hybrid automaton** that autonomously guides 
 - **Multi-Obstacle Support**: Handles multiple static and dynamic obstacles simultaneously
 - **Dynamic Obstacle Prediction**: Accounts for obstacle motion and trajectory prediction
 - **Real-Time Visualization**: Live animated simulation with state visualization and unsafe set display
-- **Modular Architecture**: Clean separation of core automaton logic from CommonOcean simulation integration
+- **Deterministic Runtime**: tick-synchronous executive (`SyncColavRuntime`) with bit-identical reruns — same guards/resets/dynamics as the async runtime, no wall-clock dependence
+- **Modular Architecture**: Clean separation of core automaton logic from simulator/AIS integrations
 
 ## System Architecture
 
@@ -150,6 +151,27 @@ async def main():
     print(results)
 
 asyncio.run(main())
+```
+
+#### Deterministic synchronous usage
+
+For reproducible simulation and analysis (and as the basis for new
+integrations), step the automaton tick-by-tick in sim time — identical
+inputs give bit-identical trajectories:
+
+```python
+import numpy as np
+from colav_automaton import SyncColavRuntime
+
+rt = SyncColavRuntime(
+    waypoint=(5000.0, 0.0),
+    obstacles=[(2500.0, 0.0, 5.0, np.pi)],   # (x, y, velocity, heading)
+    initial_state=(0.0, 0.0, 0.0),           # [x, y, heading]
+    Cs=300.0, v=6.0, tp=3.0,
+)
+while not rt.goal_reached():
+    result = rt.step(dt=1.0, obstacles=current_obstacle_states())
+    print(result.t, result.mode, result.state)
 ```
 
 ### Running Examples

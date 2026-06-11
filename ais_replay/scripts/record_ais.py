@@ -10,7 +10,8 @@ Usage:
         --bbox 1.15,103.7,1.35,104.1 \
         --duration 1800 \
         --out singapore_strait.jsonl
-    # API key via --api-key or the AISSTREAM_API_KEY env var
+    # API key resolution order: --api-key, AISSTREAM_API_KEY env var,
+    # then a .aisstream_key file in the repo root (gitignored).
 """
 
 import argparse
@@ -52,10 +53,21 @@ async def record(api_key, bbox, duration, out_path):
     print(f"Recorded {count} messages to {out_path}")
 
 
+def _default_api_key():
+    """--api-key flag > AISSTREAM_API_KEY env var > repo-root key file."""
+    key = os.environ.get("AISSTREAM_API_KEY")
+    if key:
+        return key
+    key_file = Path(__file__).parent.parent.parent / ".aisstream_key"
+    if key_file.exists():
+        return key_file.read_text().strip()
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--api-key", default=os.environ.get("AISSTREAM_API_KEY"))
+    ap.add_argument("--api-key", default=_default_api_key())
     ap.add_argument("--bbox", required=True,
                     help="lat_min,lon_min,lat_max,lon_max")
     ap.add_argument("--duration", type=float, default=1800.0,
@@ -64,7 +76,8 @@ def main():
     args = ap.parse_args()
 
     if not args.api_key:
-        ap.error("provide --api-key or set AISSTREAM_API_KEY")
+        ap.error("provide --api-key, set AISSTREAM_API_KEY, or put the "
+                 "key in .aisstream_key at the repo root")
     bbox = [float(p) for p in args.bbox.split(",")]
     if len(bbox) != 4:
         ap.error("--bbox needs lat_min,lon_min,lat_max,lon_max")

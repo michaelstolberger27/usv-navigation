@@ -9,3 +9,6 @@ docs/
 # Thesis sources stay out of version control (deliberate)
 MS_FYP.tex
 MS_FYP_BACKUP.tex
+
+# Local secrets — never commit
+.aisstream_key

@@ -1,6 +1,13 @@
 # USV Navigation - Collision Avoidance Automaton
 
+[![CI](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml/badge.svg?branch=Updates)](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml)
+
 A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface Vehicles (USVs) that provides provably safe autonomous navigation in dynamic environments.
+
+<p align="center">
+  <img src="examples/output/scenario3_head_on_encounter.gif" alt="Head-on encounter avoidance" width="49%"/>
+  <img src="examples/output/scenario6_multi_vessel_crossing.gif" alt="Multi-vessel crossing avoidance" width="49%"/>
+</p>
 
 ## Table of Contents
 
@@ -13,6 +20,8 @@ A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface
   - [Testing with CommonOcean Simulator](#testing-with-commonocean-simulator)
   - [Batch Evaluation](#batch-evaluation)
   - [Visualization](#visualization)
+- [Evaluation Results](#evaluation-results)
+- [Running the Tests](#running-the-tests)
 - [Project Structure](#project-structure)
 - [Key Components](#key-components)
   - [Automaton Factory](#automaton-factory)
@@ -44,19 +53,19 @@ The collision avoidance system operates as a **hybrid automaton** with three sta
 │  S1: WAYPOINT_REACHING  │  Normal navigation toward target waypoint
 │   (Prescribed-Time)     │
 └───────────┬─────────────┘
-            │ G11 ∧ G12 (Collision threat detected)
+            │ G11 ∧ G22 (Obstacle in path AND risk index high)
             ▼
 ┌─────────────────────────┐
 │ S2: COLLISION_AVOIDANCE │  Navigate to virtual waypoint V1
-│  (Unsafe Set + PT)      │  (starboard vertex of unsafe region)
+│  (Unsafe Set + PT)      │  (vertex of the swept unsafe region)
 └───────────┬─────────────┘
-            │ ¬L1 ∨ ¬L2 (Avoidance complete)
+            │ ¬L1 ∨ ¬L2 (V1 reached OR V1 behind)
             ▼
 ┌─────────────────────────┐
-│  S3: CONSTANT_CONTROL   │  Hold last command while transitioning
+│  S3: CONSTANT_CONTROL   │  Hold heading until the route is safe
 │                         │
 └───────────┬─────────────┘
-            │ ¬G11 (Line-of-sight clear)
+            │ ¬G23 ∧ RI < K_off (LOS clear AND risk subsided)
             ▼
         (Back to S1)
 ```
@@ -64,15 +73,17 @@ The collision avoidance system operates as a **hybrid automaton** with three sta
 ### State Descriptions
 
 - **S1 (WAYPOINT_REACHING)**: The vessel navigates directly toward its target waypoint using prescribed-time control for guaranteed convergence
-- **S2 (COLLISION_AVOIDANCE)**: When obstacles threaten the path, the system computes a virtual waypoint V1 (starboard vertex of the unsafe convex hull) and navigates to it safely
-- **S3 (CONSTANT_CONTROL)**: A transition state that maintains the last control command while verifying the avoidance maneuver is complete
+- **S2 (COLLISION_AVOIDANCE)**: When obstacles threaten the path, the system computes a virtual waypoint V1 (a vertex of the swept unsafe convex hull, chosen by predicted CPA with a COLREGs starboard preference) and navigates to it safely
+- **S3 (CONSTANT_CONTROL)**: A transition state that holds the current heading while verifying the avoidance maneuver is complete
 
 ### Guard Conditions
 
-- **G11**: Line-of-sight (LOS) to waypoint intersects unsafe regions — cone radius equals `Cs` so any obstacle within the safety radius triggers the guard
-- **G12**: At least one obstacle poses collision threat (TCPA ≤ dsafe/v AND DCPA ≤ dsafe)
-- **L1**: Vessel has reached virtual waypoint V1 with proper heading alignment
-- **L2**: Virtual waypoint V1 is ahead of the vessel (within ±120° of heading)
+- **G11**: Line-of-sight (LOS) to waypoint intersects unsafe regions — cone radius equals `Cs` so any obstacle within the safety radius of the path triggers the guard
+- **G22**: Risk index `RI(DCPA, TCPA, d_s) = ⅓·(F(DCPA) + F(TCPA) + F(d_s)) ≥ K` — a nonlinear assessment of closest-point-of-approach distance, time, and range that triggers avoidance early and smoothly (COLREGs Rule 8)
+- **L1**: Vessel has not yet reached virtual waypoint V1 (pure distance check)
+- **L2**: Virtual waypoint V1 is ahead of the vessel (within ±90° of heading)
+- **G23**: The obstacle's unsafe region still intersects the LOS to the waypoint (resume check)
+- **K_off hysteresis**: Resuming from S3 additionally requires the risk index to drop below `K_off < K`. Without it, a still-converging obstacle can re-trigger avoidance the instant the ship resumes, causing rapid S2/S3/S1 cycling with a freshly recomputed V1 each time — observed as both collisions and non-reproducible outcomes before the fix
 
 ## Installation
 
@@ -221,6 +232,8 @@ python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate.py \
 
 Results are saved incrementally to `output/batch_eval/results.csv` with per-scenario metrics including CPA distance, goal reached, collision detected, encounter type, and automaton state time distribution. Summary plots are generated on completion.
 
+There are three batch runners, one per dataset (they differ in how traffic trajectories are sourced): `batch_evaluate.py` (generic), `batch_evaluate_handcrafted.py` (pre-computed trajectories from the XML), and `batch_evaluate_marine_cadastre.py` (straight-line traffic synthesized from AIS-derived planning problems). All support `--limit`, `--start`, `--scenario-ids`, `--resume`, and `--max-runtime`.
+
 ### Visualization
 
 The simulation generates trajectory plots and animations showing:
@@ -231,6 +244,38 @@ The simulation generates trajectory plots and animations showing:
 - **Virtual waypoint V1** (when in avoidance mode)
 - **LOS cone** and heading arrows
 - **Current state indicator** (S1/S2/S3) with time readout
+
+## Evaluation Results
+
+Evaluated on the CommonOcean **HandcraftedTwoVesselEncounters** dataset (2000 two-vessel
+encounter scenarios with real curving traffic trajectories; ego `Cs=300 m`, `tp=3 s`,
+`dt=1 s`):
+
+| Metric | Result |
+|---|---|
+| Collisions | 1 / 2000 |
+| Goal reached | 1999 / 2000 |
+| Scenarios with avoidance activated | ~835 |
+| Average CPA during avoidance | ~540 m |
+
+Successive design iterations on this dataset: 16 collisions / 21 goal failures (V1 from
+current obstacle positions) → 1 / 5 (V1 from a horizon-capped swept region) → **1 / 1**
+(adding the `K_off` resume hysteresis, see [Guard Conditions](#guard-conditions)). The one
+remaining failure is a borderline crossing scenario tracked in `HANDOFF.md`. A 25-scenario
+MarineCadastre (AIS-derived) set is also evaluated via `batch_evaluate_marine_cadastre.py`.
+
+## Running the Tests
+
+The core automaton has a pytest suite covering the guard conditions (paper eq 13-27),
+the risk-index hysteresis, V1 selection, and the unsafe-set geometry wrappers:
+
+```bash
+pip install -e .[dev]
+pytest
+```
+
+No simulator or Docker is required — the suite exercises only `src/colav_automaton/`.
+CI runs it on every push (see `.github/workflows/ci.yml`).
 
 ## Project Structure
 
@@ -247,8 +292,8 @@ usv-navigation/
 │       ├── dynamics/
 │       │   └── dynamics.py            # State flow dynamics (S1/S2 navigation, S3 constant)
 │       ├── guards/
-│       │   ├── guards.py              # Transition guards (G11∧G12, ¬L1∨¬L2, ¬G11)
-│       │   └── conditions.py          # Collision detection logic (G11, G12, L1, L2)
+│       │   ├── guards.py              # Transition guards (G11∧G22, ¬L1∨¬L2, ¬G23 + K_off hysteresis)
+│       │   └── conditions.py          # Guard conditions (G11, G12, G22, G23, L1, L2, risk index)
 │       ├── resets/
 │       │   └── resets.py              # State reset handlers (V1 computation & waypoint stack)
 │       └── invariants/
@@ -261,12 +306,17 @@ usv-navigation/
 │   ├── evaluation/
 │   │   └── metrics.py                 # Per-scenario metrics: CPA, goal reached, encounter type
 │   └── scripts/
-│       ├── batch_evaluate.py          # Batch runner across many XML scenarios
+│       ├── batch_evaluate.py          # Batch runner (generic dataset)
+│       ├── batch_evaluate_handcrafted.py      # Batch runner (HandcraftedTwoVesselEncounters)
+│       ├── batch_evaluate_marine_cadastre.py  # Batch runner (MarineCadastre AIS scenarios)
+│       ├── animate_scenario.py        # Render a scenario run as a GIF (with unsafe-set overlay)
 │       ├── commonocean_scenario.py    # Single scenario runner with pyglet display
 │       ├── commonocean_collision_test.py  # Head-on collision test + GIF output
 │       └── plot_trajectories.py       # Trajectory plot generator for selected scenarios
 ├── examples/
 │   └── realtime_simulation.py         # Standalone animated simulation (no Docker required)
+├── tests/                             # Pytest suite for the core automaton (no simulator needed)
+├── .github/workflows/ci.yml           # CI: install + pytest on every push
 ├── docker/
 │   ├── Dockerfile                     # Full simulation stack (commonocean-sim + Gurobi + VNC)
 │   ├── docker-compose.yml             # Service definition with volume mounts
@@ -291,13 +341,15 @@ ColavAutomaton(
     a: float = 1.67,            # System dynamics parameter
     eta: float = 3.5,           # Controller gain
     tp: float = 1.0,            # Prescribed time (seconds)
-    v1_buffer: float = 0.0      # Virtual waypoint clearance buffer (meters)
+    v1_buffer: float = 0.0,     # Virtual waypoint clearance buffer (meters)
+    K: float = 0.35,            # Risk-index threshold to enter avoidance (G22)
+    K_off: float = 0.25,        # Risk-index threshold to resume from S3 (hysteresis, < K)
 )
 ```
 
 > **Note:** `delta` and `dsafe` are derived automatically:
 > - `delta = max(5.0, v * tp * 0.5)` — arrival tolerance
-> - `dsafe = Cs + (v * 2) * tp` — safe distance threshold
+> - `dsafe = Cs + v * tp` — safe distance threshold (paper eq 14)
 
 **CommonOcean evaluation uses:** `Cs=300.0`, `tp=3.0`, `a=1.67`, `eta=3.5` (real-world scale, dt=1s).
 
@@ -319,9 +371,16 @@ Transition logic in [`guards.py`](src/colav_automaton/guards/guards.py) and [`co
 - Tests intersection with unsafe set polygon using Shapely
 - Any obstacle within `Cs` of the direct path triggers avoidance
 
-**G12 (Threat Assessment):**
-- For each obstacle: `if (TCPA ≤ dsafe/v) AND (DCPA ≤ dsafe): threat = True`
-- Uses `check_collision_threat()` from `controllers.unsafe_sets`
+**G22 (Risk Assessment):**
+- `RI(DCPA, TCPA, d_s) = ⅓·(F(DCPA) + F(TCPA) + F(d_s)) ≥ K` with the paper's piecewise
+  quadratic `F(z)` mapping each metric onto [0, 1]
+- Triggers avoidance much earlier than a plain distance check for converging traffic
+
+**G23 + K_off (Resume Check with Hysteresis):**
+- The ship leaves S3 only when the LOS to the waypoint is clear of the obstacle's unsafe
+  region **and** the risk index has dropped below `K_off < K`
+- The asymmetric thresholds (enter at `K ≥ 0.35`, resume below `K_off = 0.25`) prevent
+  rapid avoid/resume cycling against still-converging traffic
 
 **Post-avoidance waypoint recovery:**
 - On S2/S3 → S1 transition, waypoints that are now behind the vessel are skipped automatically, preventing backtracking after an avoidance manoeuvre

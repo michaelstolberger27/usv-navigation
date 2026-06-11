@@ -2,7 +2,8 @@ import numpy as np
 from hybrid_automaton.definition import guard
 from hybrid_automaton import RuntimeContext
 from colav_automaton.guards.conditions import (
-    G11_check, G12_check, G22_check, G23_check, L1_check, L2_check
+    G11_check, G12_check, G22_check, G23_check, L1_check, L2_check,
+    compute_risk_index,
 )
 
 
@@ -164,6 +165,16 @@ def not_G23_guard(ctx: RuntimeContext) -> bool:
 
     This is the paper's prescribed resume condition for dynamic obstacles,
     replacing the simpler ¬G11 which only checks the current instant.
+
+    Hysteresis extension (beyond the paper): resume additionally requires
+    the G22 risk index to have dropped below K_off < K.  G23's static-only
+    check clears as soon as the LOS misses the obstacle's *current* Cs
+    circle, while the S1->S2 trigger (G11 ∧ G22) is TCPA/DCPA-predictive;
+    without hysteresis that asymmetry causes rapid S3->S1->S2 cycling
+    against a still-converging obstacle, recomputing V1 each re-entry
+    (observed in T-1022: 6 activations, then collision).  Requiring
+    RI < K_off keeps the ship committed to its evasive heading until the
+    risk has genuinely subsided.  Set K_off >= 1 to recover pure ¬G23.
     """
     state = ctx.continuous_state.latest()
     cfg = ctx.configuration
@@ -177,4 +188,18 @@ def not_G23_guard(ctx: RuntimeContext) -> bool:
         cfg['obstacles'], cfg['Cs']
     )
 
-    return not g23
+    if g23:
+        return False
+
+    ri = compute_risk_index(
+        state[0], state[1], state[2], cfg['obstacles'],
+        cfg['v'], cfg['Cs'],
+        dcpa_beta1=cfg.get('dcpa_beta1', 463.0),
+        dcpa_beta2=cfg.get('dcpa_beta2', 926.0),
+        tcpa_beta1=cfg.get('tcpa_beta1', 120.0),
+        tcpa_beta2=cfg.get('tcpa_beta2', 240.0),
+        dist_beta1=cfg.get('dist_beta1', 148.0),
+        dist_beta2=cfg.get('dist_beta2', 463.0),
+    )
+
+    return ri < cfg.get('K_off', 0.25)

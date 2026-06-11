@@ -198,6 +198,75 @@ def _F(z: float, beta1: float, beta2: float) -> float:
     return 0.0
 
 
+def compute_risk_index(
+    pos_x: float,
+    pos_y: float,
+    psi: float,
+    obstacles_list: List[Tuple[float, float, float, float]],
+    ship_v: float,
+    Cs: float,
+    dcpa_beta1: float = 463.0,
+    dcpa_beta2: float = 926.0,
+    tcpa_beta1: float = 120.0,
+    tcpa_beta2: float = 240.0,
+    dist_beta1: float = 148.0,
+    dist_beta2: float = 463.0,
+) -> float:
+    """
+    Maximum risk index over all approaching obstacles (paper eq 19-21).
+
+    RI(DCPA, TCPA, d_s) = 1/3 * (F(DCPA) + F(TCPA) + F(d_s))
+
+    Uses the paper's nonlinear index function F(z) (eq 20) applied to three
+    metrics: DCPA, TCPA, and distance.  Obstacles with negative TCPA
+    (receding) are ignored.
+
+    Default beta parameters are scaled from the paper's nautical values
+    (DCPA [0.25, 0.5] nmi, TCPA [2, 4] min, dist [0.08, 0.25] nmi)
+    to meters/seconds for CommonOcean scenarios.
+
+    Args:
+        pos_x, pos_y: Current ship position
+        psi: Current ship heading (rad)
+        obstacles_list: List of (ox, oy, ov, o_psi) tuples
+        ship_v: Ship velocity (m/s)
+        Cs: Safety radius (m)
+        dcpa_beta1, dcpa_beta2: DCPA risk bounds (m)
+        tcpa_beta1, tcpa_beta2: TCPA risk bounds (s)
+        dist_beta1, dist_beta2: Distance risk bounds (m)
+
+    Returns:
+        float: max RI in [0, 1] over approaching obstacles (0.0 if none)
+    """
+    if not obstacles_list:
+        return 0.0
+
+    agent = _create_agent(pos_x, pos_y, psi, ship_v, Cs)
+    dynamic_obstacles = _create_obstacles(obstacles_list, Cs)
+    results = calculate_obstacle_metrics_for_agent(agent, dynamic_obstacles)
+
+    max_ri = 0.0
+    for i, r in enumerate(results):
+        ox, oy = obstacles_list[i][0], obstacles_list[i][1]
+        d_s = np.hypot(ox - pos_x, oy - pos_y)
+
+        dcpa = r.dcpa
+        tcpa = r.tcpa
+
+        # Only consider obstacles that are approaching (positive TCPA)
+        if tcpa < 0:
+            continue
+
+        f_dcpa = _F(dcpa, dcpa_beta1, dcpa_beta2)
+        f_tcpa = _F(tcpa, tcpa_beta1, tcpa_beta2)
+        f_dist = _F(d_s, dist_beta1, dist_beta2)
+
+        ri = (f_dcpa + f_tcpa + f_dist) / 3.0
+        max_ri = max(max_ri, ri)
+
+    return max_ri
+
+
 def G22_check(
     pos_x: float,
     pos_y: float,
@@ -218,56 +287,22 @@ def G22_check(
 
     RI(DCPA, TCPA, d_s) = 1/3 * (F(DCPA) + F(TCPA) + F(d_s)) >= K
 
-    Uses the paper's nonlinear index function F(z) (eq 20) applied to three
-    metrics: DCPA, TCPA, and distance.  This replaces G12 for dynamic
-    obstacles, enabling earlier and smoother avoidance (Rule 8).
-
-    Default beta parameters are scaled from the paper's nautical values
-    (DCPA [0.25, 0.5] nmi, TCPA [2, 4] min, dist [0.08, 0.25] nmi)
-    to meters/seconds for CommonOcean scenarios.
+    This replaces G12 for dynamic obstacles, enabling earlier and smoother
+    avoidance (Rule 8).  See compute_risk_index for the RI computation.
 
     Args:
-        pos_x, pos_y: Current ship position
-        psi: Current ship heading (rad)
-        obstacles_list: List of (ox, oy, ov, o_psi) tuples
-        ship_v: Ship velocity (m/s)
-        Cs: Safety radius (m)
-        K: Risk threshold (paper uses 0.35)
-        dcpa_beta1, dcpa_beta2: DCPA risk bounds (m)
-        tcpa_beta1, tcpa_beta2: TCPA risk bounds (s)
-        dist_beta1, dist_beta2: Distance risk bounds (m)
+        K: Risk threshold (paper uses 0.35); other args as compute_risk_index.
 
     Returns:
         bool: True if RI >= K for any obstacle (collision risk is high)
     """
-    if not obstacles_list:
-        return False
-
-    agent = _create_agent(pos_x, pos_y, psi, ship_v, Cs)
-    dynamic_obstacles = _create_obstacles(obstacles_list, Cs)
-    results = calculate_obstacle_metrics_for_agent(agent, dynamic_obstacles)
-
-    for i, r in enumerate(results):
-        ox, oy = obstacles_list[i][0], obstacles_list[i][1]
-        d_s = np.hypot(ox - pos_x, oy - pos_y)
-
-        dcpa = r.dcpa
-        tcpa = r.tcpa
-
-        # Only consider obstacles that are approaching (positive TCPA)
-        if tcpa < 0:
-            continue
-
-        f_dcpa = _F(dcpa, dcpa_beta1, dcpa_beta2)
-        f_tcpa = _F(tcpa, tcpa_beta1, tcpa_beta2)
-        f_dist = _F(d_s, dist_beta1, dist_beta2)
-
-        ri = (f_dcpa + f_tcpa + f_dist) / 3.0
-
-        if ri >= K:
-            return True
-
-    return False
+    ri = compute_risk_index(
+        pos_x, pos_y, psi, obstacles_list, ship_v, Cs,
+        dcpa_beta1=dcpa_beta1, dcpa_beta2=dcpa_beta2,
+        tcpa_beta1=tcpa_beta1, tcpa_beta2=tcpa_beta2,
+        dist_beta1=dist_beta1, dist_beta2=dist_beta2,
+    )
+    return ri >= K
 
 
 def G23_check(

@@ -47,6 +47,7 @@ def ColavAutomaton(
     v1_buffer: float = 0.0,
     m: float = 3.0,
     K: float = 0.35,
+    K_off: float = 0.25,
     dcpa_beta1: float = 463.0,
     dcpa_beta2: float = 926.0,
     tcpa_beta1: float = 120.0,
@@ -120,6 +121,9 @@ def ColavAutomaton(
             'tp': tp,
             'v1_buffer': v1_buffer,
             'K': K,
+            # Resume hysteresis: S3->S1 requires risk index < K_off (< K)
+            # so a still-converging obstacle can't re-trigger S2 instantly.
+            'K_off': K_off,
             'dcpa_beta1': dcpa_beta1,
             'dcpa_beta2': dcpa_beta2,
             'tcpa_beta1': tcpa_beta1,

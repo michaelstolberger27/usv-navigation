@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 viz = ["matplotlib"]
 dev = ["pytest"]
+ais = ["websockets"]  # live aisstream.io mode only; recorded replay needs nothing extra
 
 [tool.setuptools.packages.find]
 where = ["src"]

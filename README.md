@@ -17,6 +17,7 @@ A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface
 - [Quick Start](#quick-start)
   - [Basic Usage](#basic-usage)
   - [Running Examples](#running-examples)
+  - [AIS Replay (real ship traffic)](#ais-replay-real-ship-traffic)
   - [Testing with CommonOcean Simulator](#testing-with-commonocean-simulator)
   - [Batch Evaluation](#batch-evaluation)
   - [Visualization](#visualization)
@@ -172,6 +173,31 @@ python examples/realtime_simulation.py --no-unsafe      # Hide unsafe region ove
 5. Overtaking Encounter
 6. Multi-Vessel Crossing
 
+### AIS Replay (real ship traffic)
+
+The [`ais_replay/`](ais_replay/) adapter feeds **AIS vessel traffic** into the automaton —
+recorded or live — with no simulator required:
+
+```bash
+# Replay the bundled sample scenario (Singapore Strait geometry)
+PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
+
+# Record real traffic from aisstream.io (free API key), then replay it
+PYTHONPATH=src:. python3 ais_replay/scripts/record_ais.py \
+    --bbox 1.15,103.7,1.35,104.1 --duration 1800 --out strait.jsonl
+PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py \
+    --recording strait.jsonl --ego-start 1.20,103.85 --goal 1.20,103.95
+```
+
+<p align="center">
+  <img src="examples/output/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+</p>
+
+AIS reports arrive sparsely (2-30+ s per vessel), so a per-vessel **tracking layer**
+dead-reckons between updates and expires stale tracks — the automaton keeps consuming
+clean per-tick obstacle states. Recordings are raw aisstream.io JSONL, replayed
+bit-identically. Live mode (`AISStreamSource`) needs `pip install -e .[ais]`.
+
 ### Testing with CommonOcean Simulator
 
 The COLAV automaton integrates with [commonocean-sim](https://github.com/CommonOcean/commonocean-sim) via the adapter layer in `commonocean_integration/`. A Docker setup provides the full simulation stack (commonocean-sim, Gurobi, VNC) pre-configured.
@@ -313,6 +339,13 @@ usv-navigation/
 │       ├── commonocean_scenario.py    # Single scenario runner with pyglet display
 │       ├── commonocean_collision_test.py  # Head-on collision test + GIF output
 │       └── plot_trajectories.py       # Trajectory plot generator for selected scenarios
+├── ais_replay/                        # AIS traffic adapter (recorded replay + aisstream.io live)
+│   ├── geo.py                         # lat/lon <-> local metric frame
+│   ├── tracker.py                     # Per-vessel dead-reckoning tracker (sparse AIS -> per-tick states)
+│   ├── sources.py                     # RecordedAISSource (JSONL), AISStreamSource (websocket)
+│   ├── runner.py                      # Drives the automaton through AIS traffic
+│   ├── sample_data/                   # Bundled synthetic recording (aisstream.io format)
+│   └── scripts/                       # run_replay.py, record_ais.py
 ├── examples/
 │   └── realtime_simulation.py         # Standalone animated simulation (no Docker required)
 ├── tests/                             # Pytest suite for the core automaton (no simulator needed)

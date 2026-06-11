@@ -48,10 +48,16 @@ all three new-only failures have `avoidance_activations=0`, so the V1 change can
    With hysteresis, 5 reruns: 3 collisions (CPA 103–146 m), 2 passes (CPA ~340–370 m), always
    2–3 avoidance activations. crossing_from_starboard (ego is give-way). History: collided
    under old V1 (CPA 125 m), goal-failure under capped-swept V1 (CPA 446 m), now flaky — it
-   has **never** passed reliably under any configuration. Needs a T-1022-style investigation
-   (`animate_scenario.py T-838`, transition log). Suspects: residual chattering (2–3
-   activations despite hysteresis) and/or V1 side selection in the give-way crossing.
-   Artifacts: `output/t838_check/run{1..5}`.
+   has **never** passed reliably under any configuration.
+   **Preliminary diagnosis (2026-06-11, from `output/t838_check/*.gif`):** the traffic vessel
+   crosses from starboard heading NE; the ego (give-way, should pass *astern*/south) instead
+   turns **port and crosses ahead**, skirting the swept region's northern flank — V1 lands on
+   the port side because the hull's SW (astern) vertices score poorly on predicted CPA with
+   the obstacle's *current* position nearby. Timing then decides collision-or-miss → flaky.
+   Candidate fix: COLREGs cross-astern preference in `compute_v1` for crossing_from_starboard
+   (the encounter classifier already exists in `conditions.py`). Behavioural — needs a full
+   batch validation; consider doing it together with the phase-5 parameter sweeps.
+   Artifacts: `output/t838_check/run{1..5}` + GIF.
 2. **Run-to-run non-determinism** (controller's wall-clock asyncio thread): T-838 outcomes
    above vary across identical runs; concurrent container load also shifts timing-sensitive
    outcomes. The roadmap's phase 4 (tick-synchronous runtime) is the systemic fix — T-838 may

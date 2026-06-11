@@ -1,34 +1,23 @@
 """
 Drives the COLAV automaton through AIS traffic.
 
-Uses the same pattern as commonocean_integration/adapters/controller.py:
-the automaton runs in a background asyncio thread in real-time mode with
-a continuous-state provider; the replay loop injects the ego state and
-the tracker's obstacle list each tick, reads the control input u back,
-and integrates simple heading/speed kinematics externally.
+Built on SyncColavRuntime: the automaton is stepped tick-by-tick in sim
+time, so replays are deterministic (bit-identical reruns), run as fast
+as the CPU allows, and need none of the wall-clock workarounds the
+async adapter pattern required (yaw-rate clamping against stale control,
+pacing to hold a 'validated wall:sim ratio'). Control is recomputed
+every tick by construction.
 
-Operating regime: like the CommonOcean batch scripts, the replay loop
-runs unpaced (CPU-bound, typically tens of sim-seconds per wall-second)
-while the automaton thread evaluates at 20 Hz wall — control input is
-therefore updated every few sim-seconds. This is the regime the
-2000-scenario batch validation ran in. The ego model clamps yaw rate
-(as the sim's vessel model does); without that clamp the sparse control
-updates destabilise the heading integration.
-
-Inherited caveat (HANDOFF §3.2): wall-clock evaluation makes exact
-trajectories load-dependent. The roadmap's phase 4 (tick-synchronous
-runtime) is the proper fix.
+The optional `pace` parameter exists only for watching a replay in real
+time — it has no effect on the trajectory.
 """
 
-import asyncio
-import threading
 import time
 from typing import List, Optional, Tuple
 
 import numpy as np
 
-from colav_automaton import ColavAutomaton
-from colav_automaton.controllers import HeadingControlProvider
+from colav_automaton import SyncColavRuntime
 from colav_automaton.controllers.unsafe_sets import compute_unified_unsafe_region
 
 from ais_replay.sources import RecordedAISSource
@@ -53,23 +42,14 @@ class ReplayRunner:
         K: float = 0.35,
         K_off: float = 0.25,
         dt: float = 1.0,
-        max_yaw_rate: float = 0.15,
-        pace: float = 0.02,
+        pace: float = 0.0,
         max_duration: float = 7200.0,
         obstacle_range: float = 8000.0,
     ):
         """
         Args:
-            max_yaw_rate: ego yaw-rate saturation (rad/s). Stands in for
-                the vessel model's physical limit; required for stable
-                integration with sparse control updates.
-            pace: wall seconds to sleep per tick. The default (0.02)
-                holds the wall:sim ratio near the regime the CommonOcean
-                batch validation ran in (~50 ticks/s against the 20 Hz
-                automaton thread = control refresh every ~2.5 sim s).
-                Use dt for 1:1 live/display sync; 0 (flat out) starves
-                the automaton of evaluations and is only useful for
-                smoke tests.
+            pace: wall seconds to sleep per tick, for real-time viewing
+                only (0 = run flat out; deterministic either way).
             obstacle_range: only tracks within this range of the ego are
                 passed to the automaton (a strait bbox holds 100+
                 vessels; per-obstacle hull computation cannot take them
@@ -78,24 +58,19 @@ class ReplayRunner:
         self.source = source
         self.tracker = tracker
         self.goal = goal
-        self.v = v
         self.Cs = Cs
+        self.v = v
         self.dt = dt
-        self.a = a
-        self.max_yaw_rate = max_yaw_rate
         self.pace = pace
         self.max_duration = max_duration
         self.obstacle_range = obstacle_range
 
-        self._vessel_state = np.array(ego_start, dtype=float)
-
-        self._ha = ColavAutomaton(
-            waypoint_x=goal[0],
-            waypoint_y=goal[1],
+        self._rt = SyncColavRuntime(
+            waypoint=goal,
             obstacles=[],
+            initial_state=ego_start,
             Cs=Cs, a=a, v=v, eta=eta, tp=tp, K=K, K_off=K_off,
         )
-        self._controller = HeadingControlProvider(self._ha)
 
         # Step-indexed parallel trackers (same convention as the
         # CommonOcean adapter — keep them length-aligned).
@@ -109,97 +84,36 @@ class ReplayRunner:
         self.goal_reached = False
         self.min_cpa = float("inf")
 
-        self._loop = asyncio.new_event_loop()
-        self._ready = threading.Event()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-
-    # ---- automaton background thread (adapter pattern) ----
-
-    def _run_loop(self):
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._activate())
-
-    async def _activate(self):
-        self._ready.set()
-        internal_rate = 20  # Hz
-        await self._ha.activate(
-            initial_continuous_state=self._vessel_state.copy(),
-            initial_control_input_states={'u': np.array([self._vessel_state[2]])},
-            enable_real_time_mode=True,
-            enable_self_integration=False,
-            delta_time=1.0 / internal_rate,
-            timeout_sec=float('inf'),
-            continuous_state_provider=self._state_provider,
-            continuous_state_provision_rate=internal_rate,
-            control_states_provider=self._controller,
-            control_states_provision_rate=internal_rate,
-            should_write_logs=False,
-        )
-
-    def _state_provider(self):
-        ctx = self._ha._runtime._ctx
-        ctx.continuous_state.set_continuous_state(self._vessel_state.copy())
-        return ctx.continuous_state
-
-    # ---- replay loop ----
-
     def run(self, t_start: Optional[float] = None, verbose: bool = True) -> dict:
         """
         Run the replay. Returns a summary dict (goal_reached, min_cpa,
         steps, sim duration).
         """
-        self._thread.start()
-        self._ready.wait()
-        time.sleep(0.5)  # let activate() reach its first evaluation
-
         sim_t = self.source.t_start if t_start is None else t_start
         t0 = sim_t
-        arrival_radius = max(5.0, self.v * 3.0 * 0.5)
+        rt = self._rt
 
         while sim_t - t0 < self.max_duration:
             # 1. Advance traffic to sim time
             self.source.feed_until(self.tracker, sim_t)
-            ego_xy = (self._vessel_state[0], self._vessel_state[1])
+            x, y, _ = rt.state
             obstacles = self.tracker.obstacles_at(
-                sim_t, near=ego_xy, within=self.obstacle_range)
+                sim_t, near=(x, y), within=self.obstacle_range)
 
-            # 2. Inject ego state + world into the automaton
-            ctx = self._ha._runtime._ctx
-            state_name = "WAYPOINT_REACHING"
-            if ctx is not None:
-                cfg = ctx.configuration
-                cfg['obstacles'] = obstacles
-                u = float(ctx.control_input_states['u'].latest())
-                if hasattr(ctx, 'discrete_state') and ctx.discrete_state is not None:
-                    state_name = getattr(ctx.discrete_state, 'name', state_name)
-            else:
-                u = self._vessel_state[2]
+            # 2. One deterministic automaton tick
+            result = rt.step(self.dt, obstacles=obstacles)
+            x, y, psi = result.state
 
-            # 3. Integrate ego kinematics (heading control + const speed).
-            # yaw_rate = a*(u - psi) with the difference wrapped (the +psi
-            # term in u cancels, so this is wrap-safe), saturated at the
-            # vessel's physical limit.
-            x, y, psi = self._vessel_state
-            err = np.arctan2(np.sin(u - psi), np.cos(u - psi))
-            yaw_rate = float(np.clip(self.a * err,
-                                     -self.max_yaw_rate, self.max_yaw_rate))
-            psi = psi + yaw_rate * self.dt
-            psi = float(np.arctan2(np.sin(psi), np.cos(psi)))
-            x = x + self.v * np.cos(psi) * self.dt
-            y = y + self.v * np.sin(psi) * self.dt
-            self._vessel_state[:] = [x, y, psi]
-
-            # 4. Record (all parallel trackers, every tick)
+            # 3. Record (all parallel trackers, every tick)
             self.times.append(sim_t - t0)
             self.position_tracker.append([x, y, psi])
-            self.state_tracker.append(state_name)
+            self.state_tracker.append(result.mode)
             self.traffic_tracker.append(obstacles)
-            v1 = None
-            if ctx is not None and state_name == "COLLISION_AVOIDANCE":
-                wps = ctx.configuration.get('waypoints', [])
-                if len(wps) > 1:
-                    v1 = tuple(wps[-1])
-            self.v1_tracker.append(v1)
+            wps = rt.configuration['waypoints']
+            self.v1_tracker.append(
+                tuple(wps[-1])
+                if result.mode == "COLLISION_AVOIDANCE" and len(wps) > 1
+                else None)
             try:
                 poly = compute_unified_unsafe_region(
                     x, y, obstacles, self.Cs, ship_psi=psi, ship_v=self.v
@@ -209,10 +123,10 @@ class ReplayRunner:
             except Exception:
                 self.unsafe_set_tracker.append(None)
 
-            # 5. Metrics + termination
+            # 4. Metrics + termination
             for ox, oy, _, _ in obstacles:
                 self.min_cpa = min(self.min_cpa, float(np.hypot(ox - x, oy - y)))
-            if np.hypot(self.goal[0] - x, self.goal[1] - y) < arrival_radius:
+            if rt.goal_reached():
                 self.goal_reached = True
                 break
 
@@ -220,7 +134,6 @@ class ReplayRunner:
             if self.pace > 0:
                 time.sleep(self.pace)
 
-        self._ha.deactivate()
         summary = {
             "goal_reached": self.goal_reached,
             "min_cpa": None if self.min_cpa == float("inf") else self.min_cpa,
@@ -231,5 +144,5 @@ class ReplayRunner:
             cpa = summary["min_cpa"]
             print(f"Replay done: steps={summary['steps']} "
                   f"goal={'Y' if self.goal_reached else 'N'} "
-                  f"min_cpa={cpa:.0f} m" if cpa is not None else "no traffic met")
+                  + (f"min_cpa={cpa:.0f} m" if cpa is not None else "no traffic met"))
         return summary

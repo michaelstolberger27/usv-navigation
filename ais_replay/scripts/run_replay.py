@@ -149,9 +149,10 @@ def main():
     ap.add_argument("--Cs", type=float, default=300.0)
     ap.add_argument("--tp", type=float, default=3.0)
     ap.add_argument("--dt", type=float, default=1.0)
-    ap.add_argument("--pace", type=float, default=0.02,
-                    help="wall seconds to sleep per tick (default keeps "
-                         "the validated wall:sim ratio; dt = real time)")
+    ap.add_argument("--pace", type=float, default=0.0,
+                    help="wall seconds to sleep per tick, for real-time "
+                         "viewing only (trajectory is deterministic "
+                         "either way; 0 = run flat out)")
     ap.add_argument("--max-duration", type=float, default=3600.0)
     ap.add_argument("--obstacle-range", type=float, default=8000.0,
                     help="only pass tracks within this range of the ego "

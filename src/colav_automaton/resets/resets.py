@@ -1,11 +1,13 @@
 import numpy as np
 from hybrid_automaton.definition import reset
-from hybrid_automaton import RuntimeContext
 from colav_automaton.controllers import compute_v1, get_unsafe_set_vertices, default_vertex_provider
 
+# Like dynamics.py: plain implementations shared by both runtimes; the
+# async-framework wrappers (which type-check the framework Context) are
+# applied explicitly at the bottom of the module.
 
-@reset
-def reset_enter_avoidance(ctx: RuntimeContext) -> RuntimeContext:
+
+def apply_enter_avoidance(ctx):
     """
     Reset when entering S2 (collision avoidance mode).
 
@@ -62,8 +64,7 @@ def reset_enter_avoidance(ctx: RuntimeContext) -> RuntimeContext:
     return ctx
 
 
-@reset
-def reset_reach_V1(ctx: RuntimeContext) -> RuntimeContext:
+def apply_reach_V1(ctx):
     """
     Reset when transitioning S2 -> S3 (V1 reached or behind).
 
@@ -74,8 +75,7 @@ def reset_reach_V1(ctx: RuntimeContext) -> RuntimeContext:
     return ctx
 
 
-@reset
-def reset_exit_avoidance(ctx: RuntimeContext) -> RuntimeContext:
+def apply_exit_avoidance(ctx):
     """
     Reset when exiting S3 back to S1 (resume waypoint reaching).
 
@@ -93,3 +93,9 @@ def reset_exit_avoidance(ctx: RuntimeContext) -> RuntimeContext:
     psi = state[2]
     ctx.control_input_states['u'].add(np.array([psi]))
     return ctx
+
+
+# Async-framework wrappers (what ColavAutomaton's Transitions use)
+reset_enter_avoidance = reset(apply_enter_avoidance)
+reset_reach_V1 = reset(apply_reach_V1)
+reset_exit_avoidance = reset(apply_exit_avoidance)

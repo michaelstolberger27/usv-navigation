@@ -99,6 +99,25 @@ class TestTrafficTracker:
         self.tracker.ingest(_report(mmsi=2, t=0.0, lat=1.21, sog=0.0))
         assert len(self.tracker.obstacles_at(10.0)) == 2
 
+    def test_range_filter(self):
+        # mmsi=1 at origin, mmsi=2 ~1113 m north: a 500 m filter around
+        # the origin keeps only the first; the filtered track survives.
+        self.tracker.ingest(_report(mmsi=1, t=0.0, sog=0.0))
+        self.tracker.ingest(_report(mmsi=2, t=0.0, lat=1.21, sog=0.0))
+        close = self.tracker.obstacles_at(0.0, near=(0.0, 0.0), within=500.0)
+        assert len(close) == 1
+        assert len(self.tracker.obstacles_at(0.0)) == 2
+
+    def test_range_filter_uses_dead_reckoned_position(self):
+        # Eastbound at 10 kn from the origin: by t=250 s the
+        # dead-reckoned position (~1286 m east) has left a 1 km disc
+        # around the origin even though no new report arrived.
+        self.tracker.ingest(_report(mmsi=1, t=0.0, sog=10.0, cog=90.0))
+        assert len(self.tracker.obstacles_at(0.0, near=(0.0, 0.0),
+                                             within=1000.0)) == 1
+        assert len(self.tracker.obstacles_at(250.0, near=(0.0, 0.0),
+                                             within=1000.0)) == 0
+
 
 class TestParseAisstreamMessage:
     def test_non_position_report_skipped(self):

@@ -153,6 +153,9 @@ def main():
                     help="wall seconds to sleep per tick (default keeps "
                          "the validated wall:sim ratio; dt = real time)")
     ap.add_argument("--max-duration", type=float, default=3600.0)
+    ap.add_argument("--obstacle-range", type=float, default=8000.0,
+                    help="only pass tracks within this range of the ego "
+                         "to the automaton (m); 0 = no filter")
     ap.add_argument("--output-dir", default=str(REPO_ROOT / "output" / "ais_replay"))
     ap.add_argument("--no-gif", action="store_true")
     args = ap.parse_args()
@@ -180,6 +183,7 @@ def main():
         goal=goal_xy,
         v=args.ego_v, Cs=args.Cs, tp=args.tp,
         dt=args.dt, pace=args.pace, max_duration=args.max_duration,
+        obstacle_range=args.obstacle_range,
     )
     summary = runner.run()
 

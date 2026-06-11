@@ -62,9 +62,23 @@ all three new-only failures have `avoidance_activations=0`, so the V1 change can
    above vary across identical runs; concurrent container load also shifts timing-sensitive
    outcomes. The roadmap's phase 4 (tick-synchronous runtime) is the systemic fix — T-838 may
    simply be the scenario that sits closest to a guard boundary.
-3. **`C-USA_UWC-1_2019012409` collides** (MarineCadastre, CPA ≈ 62 m) — pre-existing across all
+3. **Dense-traffic degeneracy (found 2026-06-11 on real Singapore Strait data, 393 vessels).**
+   Two independent defects, both rooted in the two-vessel assumptions the system was tuned on:
+   a. `compute_unified_unsafe_region` builds ONE convex hull over all obstacles — over ~80
+      in-range scattered vessels that hull covers the entire strait (see
+      `output/ais_replay/singapore_strait.gif`), so any LOS intersects it: G11 fires
+      immediately and ¬G23 can never fire. Needs per-obstacle regions / union-not-hull /
+      clustering for guard checks (core geometry change — batch revalidation required).
+   b. **Global K_off hysteresis deadlocks S3 in traffic**: resume needs max RI over ALL
+      obstacles < K_off, and a busy strait always has someone approaching. The ego crossed
+      9 km (~1400 s) frozen in S3, reaching goal only because the held heading pointed there.
+      Fix: per-threat hysteresis (resume when the RI of the obstacle(s) that triggered
+      avoidance subsides, not the global max).
+   Despite both, the transit was safe (min CPA 305 m > Cs) — but state semantics are wrong
+   and a goal off the held heading would have failed. Rank this alongside phase 4/5 work.
+4. **`C-USA_UWC-1_2019012409` collides** (MarineCadastre, CPA ≈ 62 m) — pre-existing across all
    configurations; avoidance activates but fails. Likely needs G22/threshold tuning, not V1 work.
-4. `C-USA_UWC-1_2019011202` has CPA ≈ 104 km and can never reach goal — likely a degenerate
+5. `C-USA_UWC-1_2019011202` has CPA ≈ 104 km and can never reach goal — likely a degenerate
    scenario; consider excluding it from MC stats rather than chasing it.
 
 **RESOLVED — `T-1022` (was issue #1).** Root cause: predictive-trigger (G11∧G22) vs
@@ -104,8 +118,22 @@ Two non-obvious runner facts: (1) the ego model **must clamp yaw rate** (`max_ya
 unclamped integration of the prescribed-time u diverges; (2) the `pace` parameter (default
 0.02 s/tick) holds the wall:sim ratio in the regime the 2000-scenario batch validated —
 running flat-out starves the automaton brain and is only good for smoke tests (phase 4 again).
-Remaining for this phase: record + replay real traffic, exercise live mode, EKF upgrade in
-the tracker when real jitter demands it.
+**Real-data validation (2026-06-11, live aisstream.io key):** 30-min Singapore Strait
+recording (`output/ais_replay/singapore_strait.jsonl`, gitignored — keep it; 2432 reports,
+393 vessels). Ego crossed the strait N→S: goal reached, min CPA 305 m, but exposed the
+dense-traffic degeneracies now ranked as open issue §3.3. Range filtering added to the
+tracker (`obstacles_at(near=, within=)`, runner default 8 km) — a strait bbox holds 100+
+simultaneous vessels.
+**Noise numbers (the EKF decision data):** report intervals median 120 s / p90 360 s
+(note: > tracker max_age=300 s, so some tracks flicker — consider raising max_age or making
+it speed-dependent). Dead-reckoning prediction error at next report: median 7.6 m,
+p90 75 m, p99 573 m, max 2.2 km. The median says CV dead-reckoning is fine; the tail is
+*maneuvering during long gaps*, which a CV-EKF would NOT fix (needs IMM/coordinated-turn,
+or — cheaper and more robust — uncertainty-inflated margins, noise-plan point 2). Anchored
+vessels confirmed broadcasting garbage COG (p90 jump 108°) — harmless, v≈0 nulls it.
+**Verdict: plain EKF deprioritised; per-threat hysteresis + non-convex unsafe regions
+(issue §3.3) are the real dense-traffic work, and margins-from-uncertainty beats filtering
+for the maneuver tail.**
 
 **Phase 3 — interactive web demo.** Browser sandbox (drag obstacles, watch RI/states/V1 live);
 FastAPI+websocket, or Pyodide client-side for GitHub Pages. Shares the AIS-replay frontend.

@@ -56,6 +56,7 @@ class ReplayRunner:
         max_yaw_rate: float = 0.15,
         pace: float = 0.02,
         max_duration: float = 7200.0,
+        obstacle_range: float = 8000.0,
     ):
         """
         Args:
@@ -69,6 +70,10 @@ class ReplayRunner:
                 Use dt for 1:1 live/display sync; 0 (flat out) starves
                 the automaton of evaluations and is only useful for
                 smoke tests.
+            obstacle_range: only tracks within this range of the ego are
+                passed to the automaton (a strait bbox holds 100+
+                vessels; per-obstacle hull computation cannot take them
+                all every tick). 0 disables filtering.
         """
         self.source = source
         self.tracker = tracker
@@ -80,6 +85,7 @@ class ReplayRunner:
         self.max_yaw_rate = max_yaw_rate
         self.pace = pace
         self.max_duration = max_duration
+        self.obstacle_range = obstacle_range
 
         self._vessel_state = np.array(ego_start, dtype=float)
 
@@ -153,7 +159,9 @@ class ReplayRunner:
         while sim_t - t0 < self.max_duration:
             # 1. Advance traffic to sim time
             self.source.feed_until(self.tracker, sim_t)
-            obstacles = self.tracker.obstacles_at(sim_t)
+            ego_xy = (self._vessel_state[0], self._vessel_state[1])
+            obstacles = self.tracker.obstacles_at(
+                sim_t, near=ego_xy, within=self.obstacle_range)
 
             # 2. Inject ego state + world into the automaton
             ctx = self._ha._runtime._ctx

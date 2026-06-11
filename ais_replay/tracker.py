@@ -91,11 +91,23 @@ class TrafficTracker:
             name=report.name or (existing.name if existing else ""),
         )
 
-    def obstacles_at(self, t: float) -> List[Tuple[float, float, float, float]]:
+    def obstacles_at(
+        self,
+        t: float,
+        near: Optional[Tuple[float, float]] = None,
+        within: float = 0.0,
+    ) -> List[Tuple[float, float, float, float]]:
         """
         Dead-reckoned obstacle list at time t, in the automaton's
         (x, y, v, psi) tuple format. Expires stale tracks as a side
         effect.
+
+        Args:
+            near, within: when both given, only tracks within `within`
+                metres of `near` are returned. Dense areas (a strait
+                bbox easily holds 100+ vessels) overwhelm the guards'
+                per-obstacle hull computations; real systems filter to
+                sensor/relevance range the same way.
         """
         out = []
         for mmsi in list(self._tracks):
@@ -105,12 +117,12 @@ class TrafficTracker:
                 del self._tracks[mmsi]
                 continue
             dt = max(age, 0.0)
-            out.append((
-                trk.x + trk.v * np.cos(trk.psi) * dt,
-                trk.y + trk.v * np.sin(trk.psi) * dt,
-                trk.v,
-                trk.psi,
-            ))
+            x = trk.x + trk.v * np.cos(trk.psi) * dt
+            y = trk.y + trk.v * np.sin(trk.psi) * dt
+            if near is not None and within > 0.0:
+                if np.hypot(x - near[0], y - near[1]) > within:
+                    continue
+            out.append((x, y, trk.v, trk.psi))
         return out
 
     def track_names(self) -> Dict[int, str]:

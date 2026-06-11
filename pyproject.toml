@@ -16,6 +16,13 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib"]
+dev = ["pytest"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# -p no:cacheprovider keeps the repo clean; addopts kept minimal so a plain
+# `pytest` works the same locally and in CI.
+addopts = "-ra"

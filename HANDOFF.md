@@ -159,6 +159,29 @@ TensorRT on the Jetson (latency/watts). (d) Ground surrogate — RC rover(s) wit
 Jetson companion, architecturally identical to a USV. (e) On-water demo only if access
 materializes — the stack transfers unchanged via the phase-7 ROS 2 node.
 
+## 4b. Repo-hygiene backlog (assessed 2026-06-11, deferred by user choice)
+
+Architecture itself is sound (core/adapter split proven twice); these are hygiene items,
+ranked, for a future cleanup session:
+
+1. **Git history bloat** — ~369 MB pack for 53 commits (GIF regeneration churn +
+   `refs/original/` filter-branch backup refs). Fix: drop backup refs + `git gc`; optionally
+   one history rewrite (force push) to keep only current GIF blobs — do this BEFORE the repo
+   gets watchers/forks, after that it's expensive.
+2. **Media handling** — `examples/output/` is gitignored yet 7 GIFs are force-tracked inside
+   it. Move curated demo media to a tracked `assets/` dir; keep all `output/` ignored. Render
+   README GIFs smaller (~7 MB of images currently).
+3. **Personal documents in `docs/`** (gitignored): FYP handbook/report/supervisor PDFs live
+   inside the repo folder, one `git add -f` from publication. Move outside the repo or into
+   an ignored `thesis/` with the `.tex` files.
+4. **Batch-script triplication** — `batch_evaluate*.py` ≈ 1340 lines, ~70% shared; extract
+   `evaluation/batch_runner.py` + thin entry points. Touches validation tooling — own session.
+5. **Script audit** — `replay_scenario.py` vs `animate_scenario.py` overlap;
+   `plot_trajectories.py`, `commonocean_collision_test.py` possibly superseded. Keep+document
+   or delete.
+6. **No LICENSE file** — public portfolio repo currently "all rights reserved"; add MIT +
+   `license`/`authors` in pyproject.
+
 ## 5. Operational notes
 
 - Docker stack: `docker/start.sh` (detached; noVNC at http://localhost:6080/vnc.html). The

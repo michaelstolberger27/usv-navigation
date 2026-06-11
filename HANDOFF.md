@@ -87,8 +87,19 @@ README references them; new outputs there won't be tracked. Local test runs need
 `PYTHONPATH=src` (the host's pip-installed `colav_automaton` points at the *sibling*
 `Desktop/colav-automaton` repo, not this one).
 
-**Phase 2 — live AIS replay.** Real ship traffic (aisstream.io websocket, or recorded AIS from
-a busy strait) into the controller via a thin adapter beside `commonocean_integration/`.
+**Phase 2 — AIS replay (core DONE 2026-06-11; live mode unexercised).** `ais_replay/` package:
+lat/lon local frame, per-vessel dead-reckoning tracker (sensor-noise point 1, first layer),
+recorded-JSONL replay source + runner + GIF rendering, aisstream.io live client + recorder
+(written to the v0 API format but **needs an API key to exercise** — `pip install -e .[ais]`).
+Validated end-to-end on the bundled synthetic sample (`ais_replay/sample_data/`, exact
+aisstream.io message format): goal reached, single clean starboard avoidance, CPA 1165 m.
+Two non-obvious runner facts: (1) the ego model **must clamp yaw rate** (`max_yaw_rate=0.15`)
+— control updates arrive every ~2.5 sim s from the 20 Hz wall-clock automaton thread, and
+unclamped integration of the prescribed-time u diverges; (2) the `pace` parameter (default
+0.02 s/tick) holds the wall:sim ratio in the regime the 2000-scenario batch validated —
+running flat-out starves the automaton brain and is only good for smoke tests (phase 4 again).
+Remaining for this phase: record + replay real traffic, exercise live mode, EKF upgrade in
+the tracker when real jitter demands it.
 
 **Phase 3 — interactive web demo.** Browser sandbox (drag obstacles, watch RI/states/V1 live);
 FastAPI+websocket, or Pyodide client-side for GitHub Pages. Shares the AIS-replay frontend.

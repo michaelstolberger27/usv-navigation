@@ -57,9 +57,9 @@ stateDiagram-v2
     S1: S1 — WAYPOINT_REACHING<br/>prescribed-time heading to goal
     S2: S2 — COLLISION_AVOIDANCE<br/>steer to virtual waypoint V1
     S3: S3 — CONSTANT_CONTROL<br/>hold heading until route is safe
-    S1 --> S2: G11 ∧ G22<br/>(obstacle in path ∧ risk ≥ K)
-    S2 --> S3: ¬L1 ∨ ¬L2<br/>(V1 reached ∨ V1 behind)
-    S3 --> S1: ¬G23 ∧ RI &lt; K_off<br/>(LOS clear ∧ risk subsided)
+    S1 --> S2: G11 ∧ G22<br/>obstacle in path ∧ risk ≥ K
+    S2 --> S3: ¬L1 ∨ ¬L2<br/>V1 reached ∨ V1 behind
+    S3 --> S1: ¬G23 ∧ RI below K_off<br/>LOS clear ∧ risk subsided
 ```
 
 ### State Descriptions

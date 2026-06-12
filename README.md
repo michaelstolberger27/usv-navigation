@@ -5,8 +5,8 @@
 A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface Vehicles (USVs) that provides provably safe autonomous navigation in dynamic environments.
 
 <p align="center">
-  <img src="examples/output/scenario3_head_on_encounter.gif" alt="Head-on encounter avoidance" width="49%"/>
-  <img src="examples/output/scenario6_multi_vessel_crossing.gif" alt="Multi-vessel crossing avoidance" width="49%"/>
+  <img src="assets/scenario3_head_on_encounter.gif" alt="Head-on encounter avoidance" width="49%"/>
+  <img src="assets/scenario6_multi_vessel_crossing.gif" alt="Multi-vessel crossing avoidance" width="49%"/>
 </p>
 
 ## Table of Contents
@@ -50,26 +50,16 @@ This project implements a **3-state hybrid automaton** that autonomously guides 
 
 The collision avoidance system operates as a **hybrid automaton** with three states:
 
-```
-┌─────────────────────────┐
-│  S1: WAYPOINT_REACHING  │  Normal navigation toward target waypoint
-│   (Prescribed-Time)     │
-└───────────┬─────────────┘
-            │ G11 ∧ G22 (Obstacle in path AND risk index high)
-            ▼
-┌─────────────────────────┐
-│ S2: COLLISION_AVOIDANCE │  Navigate to virtual waypoint V1
-│  (Unsafe Set + PT)      │  (vertex of the swept unsafe region)
-└───────────┬─────────────┘
-            │ ¬L1 ∨ ¬L2 (V1 reached OR V1 behind)
-            ▼
-┌─────────────────────────┐
-│  S3: CONSTANT_CONTROL   │  Hold heading until the route is safe
-│                         │
-└───────────┬─────────────┘
-            │ ¬G23 ∧ RI < K_off (LOS clear AND risk subsided)
-            ▼
-        (Back to S1)
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> S1
+    S1: S1 — WAYPOINT_REACHING<br/>prescribed-time heading to goal
+    S2: S2 — COLLISION_AVOIDANCE<br/>steer to virtual waypoint V1
+    S3: S3 — CONSTANT_CONTROL<br/>hold heading until route is safe
+    S1 --> S2: G11 ∧ G22<br/>(obstacle in path ∧ risk ≥ K)
+    S2 --> S3: ¬L1 ∨ ¬L2<br/>(V1 reached ∨ V1 behind)
+    S3 --> S1: ¬G23 ∧ RI &lt; K_off<br/>(LOS clear ∧ risk subsided)
 ```
 
 ### State Descriptions
@@ -212,7 +202,7 @@ PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py \
 ```
 
 <p align="center">
-  <img src="examples/output/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+  <img src="assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
 </p>
 
 AIS reports arrive sparsely (2-30+ s per vessel), so a per-vessel **tracking layer**

@@ -1,10 +1,15 @@
 """
 Adapter bridging the colav_automaton to commonocean-sim's VesselController.
 
-Runs the ColavAutomaton in a background thread with real-time mode enabled,
-bridging vessel state from commonocean-sim into the automaton and reading
-control outputs back. The automaton handles all guard evaluation, state
-transitions, and control computation — identical to standalone usage.
+Steps a deterministic SyncColavRuntime once per simulation tick: each
+control_input() call injects the current vessel state and obstacle list,
+advances the automaton by dt of sim time, and applies the returned
+control. Guard evaluation, transitions, and control computation are the
+same shared implementations the async runtime uses — but evaluated
+synchronously, so a scenario replays bit-identically regardless of host
+load (the previous background-asyncio design sampled guards at wall-
+clock instants, making outcomes run-to-run nondeterministic — see
+HANDOFF on T-838).
 
 Usage in a VesselFactory::
 
@@ -15,16 +20,13 @@ Usage in a VesselFactory::
     vessel.set_controller(controller)
 """
 
-import asyncio
 import time
-import threading
 import numpy as np
 
 from Controller.VesselController import VesselController
 from Environment.SurfaceVessel import SurfaceVessel
 
-from colav_automaton import ColavAutomaton
-from colav_automaton.controllers import HeadingControlProvider
+from colav_automaton import SyncColavRuntime
 from colav_automaton.controllers.unsafe_sets import compute_unified_unsafe_region
 
 
@@ -32,11 +34,8 @@ class HybridAutomatonController(VesselController):
     """
     COLREGs-aware prescribed-time heading controller for commonocean-sim.
 
-    Internally runs a ColavAutomaton in a background asyncio thread with
-    real-time pacing.  Each call to control_input() injects the current
-    vessel state and reads the latest control output from the automaton.
-
-    Returns [acceleration, yaw_rate] each tick (YP vessel model).
+    Steps a SyncColavRuntime once per control_input() call (one sim
+    tick). Returns [acceleration, yaw_rate] each tick (YP vessel model).
     """
 
     def __init__(
@@ -51,6 +50,7 @@ class HybridAutomatonController(VesselController):
         Cs: float,
         v1_buffer: float = 0.0,
         goal_waypoint: tuple = None,
+        tp_control: float = None,
     ):
         super().__init__(vessel)
         self.dt = dt
@@ -61,34 +61,24 @@ class HybridAutomatonController(VesselController):
         self.Cs = Cs
         self.v1_buffer = v1_buffer
         self.goal_waypoint = goal_waypoint  # final goal for long-range G11 check
+        # Prescribed-time control horizon: the law's singular gain ramp
+        # must span many evaluation steps (paper assumes dt << tp). A
+        # literal tp of a few seconds at dt=1 destabilises the YP plant;
+        # 60*dt reproduced the async-validated CPAs across the key
+        # scenarios and fixed T-838 (sweep 2026-06-12, HANDOFF §2).
+        self.tp_control = tp_control if tp_control is not None else max(60.0 * dt, tp)
         self.sim = None  # set by simulator after construction
 
-        # Shared state — written by control_input(), read by providers
-        self._vessel_state = np.array([0.0, 0.0, 0.0])
-
-        # Build automaton exactly like main.py
-        self._ha = ColavAutomaton(
-            waypoint_x=0.0,
-            waypoint_y=0.0,
+        # Deterministic tick-synchronous automaton. The waypoint is
+        # rewritten each tick (goal_waypoint or the sim's current
+        # target), exactly as the previous adapter did.
+        self._rt = SyncColavRuntime(
+            waypoint=(0.0, 0.0),
             obstacles=[],
-            Cs=Cs,
-            a=a,
-            v=v,
-            eta=eta,
-            tp=tp,
-            v1_buffer=v1_buffer,
+            initial_state=(0.0, 0.0, 0.0),
+            Cs=Cs, a=a, v=v, eta=eta, tp=tp, v1_buffer=v1_buffer,
+            tp_control=self.tp_control,
         )
-
-        self._controller = HeadingControlProvider(self._ha)
-
-        # Background event loop
-        self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
-            target=self._run_loop, daemon=True
-        )
-        self._ready = threading.Event()
-        self._thread.start()
-        self._ready.wait()  # block until activate() is running
 
         self.stepped = 0
         self.signal_tracker = []
@@ -99,37 +89,6 @@ class HybridAutomatonController(VesselController):
         self.real_time_pacing = True  # sleep(dt) each tick for display sync
         self._last_waypoint = None  # track waypoint changes
         self._last_automaton_state = None  # detect S2/S3 → S1 transitions
-
-    # ---- background thread ----
-
-    def _run_loop(self):
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._activate())
-
-    async def _activate(self):
-        self._ready.set()
-        # Use a fast internal rate so the automaton evaluates control
-        # frequently; the adapter's time.sleep() paces the overall sim.
-        internal_rate = 20  # Hz
-        await self._ha.activate(
-            initial_continuous_state=self._vessel_state.copy(),
-            initial_control_input_states={'u': np.array([0.0])},
-            enable_real_time_mode=True,
-            enable_self_integration=False,
-            delta_time=1.0 / internal_rate,
-            timeout_sec=float('inf'),
-            continuous_state_provider=self._state_provider,
-            continuous_state_provision_rate=internal_rate,
-            control_states_provider=self._controller,
-            control_states_provision_rate=internal_rate,
-            should_write_logs=False,
-        )
-
-    def _state_provider(self):
-        """Inject the latest vessel state into the automaton's context."""
-        ctx = self._ha._runtime._ctx
-        ctx.continuous_state.set_continuous_state(self._vessel_state.copy())
-        return ctx.continuous_state
 
     # ---- VesselController interface ----
 
@@ -145,61 +104,48 @@ class HybridAutomatonController(VesselController):
         pos_x, pos_y = current_state.position
         psi = current_state.orientation
 
-        # 1. Inject vessel state (provider picks it up next cycle)
-        self._vessel_state[:] = [pos_x, pos_y, psi]
-
-        # 2. Update waypoint and obstacles in automaton config
-        ctx = self._ha._runtime._ctx
+        cfg = self._rt.configuration
         current_wp = (target_state[0], target_state[1])
-        if ctx is not None:
-            cfg = ctx.configuration
-            # Use goal for guard LOS checks (long-range detection).
-            # Navigation still steers toward the intermediate waypoint
-            # via target_state / yaw_rate computation below.
-            if self.goal_waypoint is not None:
-                cfg['waypoints'][0] = self.goal_waypoint
-            else:
-                cfg['waypoints'][0] = current_wp
-            cfg['obstacles'] = self._get_obstacles()
 
-            # Reset prescribed-time clock when waypoint changes
-            if self._last_waypoint is not None and current_wp != self._last_waypoint:
-                ctx.clock.ping_transition()
-            self._last_waypoint = current_wp
-
-            # 3. Read latest control output
-            u = float(ctx.control_input_states['u'].latest())
-            yaw_rate = -self.a * psi + self.a * u
+        # Use goal for guard LOS checks (long-range detection).
+        # Navigation still steers toward the automaton's waypoint stack
+        # top (goal in S1, V1 in S2/S3).
+        if self.goal_waypoint is not None:
+            cfg['waypoints'][0] = self.goal_waypoint
         else:
-            # Automaton not yet active — hold heading
-            yaw_rate = 0.0
+            cfg['waypoints'][0] = current_wp
+
+        # Reset prescribed-time clock when the sim's waypoint changes
+        if self._last_waypoint is not None and current_wp != self._last_waypoint:
+            self._rt.notify_waypoint_changed()
+        self._last_waypoint = current_wp
+
+        # One deterministic automaton tick (state in, control out;
+        # the sim's vessel model owns integration)
+        result = self._rt.step_external(
+            self.dt, [pos_x, pos_y, psi], obstacles=self._get_obstacles()
+        )
+        u = result.u
+        yaw_rate = -self.a * psi + self.a * u
+        state_name = result.mode
 
         self.stepped += 1
 
         # Track actual vessel state from simulation
         self.position_tracker.append([pos_x, pos_y, psi])
-        if ctx is not None and hasattr(ctx, 'discrete_state'):
-            state_name = ctx.discrete_state.name
-            self.state_tracker.append(state_name)
+        self.state_tracker.append(state_name)
 
-            # Track virtual waypoint V1 when in collision avoidance mode
-            # In S2/S3, V1 is at waypoints[-1], goal is deeper in stack
-            if state_name in ['COLLISION_AVOIDANCE', 'CONSTANT_CONTROL']:
-                if len(cfg['waypoints']) >= 2:
-                    v1 = cfg['waypoints'][-1]  # Top of stack is V1
-                    self.v1_tracker.append(v1)
-                else:
-                    self.v1_tracker.append(None)
-            else:
-                self.v1_tracker.append(None)  # No V1 in S1
+        # Track virtual waypoint V1 when in collision avoidance mode
+        # In S2/S3, V1 is at waypoints[-1], goal is deeper in stack
+        if state_name in ['COLLISION_AVOIDANCE', 'CONSTANT_CONTROL'] \
+                and len(cfg['waypoints']) >= 2:
+            self.v1_tracker.append(cfg['waypoints'][-1])
         else:
-            state_name = 'WAYPOINT_REACHING'
-            self.state_tracker.append(state_name)
             self.v1_tracker.append(None)
 
         # Track unsafe set polygon for visualisation (best-effort, skip on error)
         try:
-            obstacles = cfg['obstacles'] if ctx is not None else []
+            obstacles = cfg['obstacles']
             if obstacles:
                 poly = compute_unified_unsafe_region(
                     pos_x, pos_y, obstacles, self.Cs,
@@ -248,18 +194,16 @@ class HybridAutomatonController(VesselController):
                 pass
 
         if self.stepped % 10 == 1:
-            u_str = f"{u:.3f}" if ctx is not None else "N/A"
-            n_obs = len(cfg['obstacles']) if ctx is not None else 0
-            state_name = ctx.discrete_state.name if ctx is not None and hasattr(ctx, 'discrete_state') else "N/A"
             print(f"[step {self.stepped}] pos=({pos_x:.1f},{pos_y:.1f}) "
                   f"psi={np.degrees(psi):.1f}deg "
                   f"wp=({target_state[0]:.0f},{target_state[1]:.0f}) "
-                  f"u={u_str} yaw_rate={yaw_rate:.4f} "
-                  f"obs={n_obs} state={state_name}")
+                  f"u={u:.3f} yaw_rate={yaw_rate:.4f} "
+                  f"obs={len(cfg['obstacles'])} state={state_name}")
         signal = np.array([0.0, yaw_rate])
         self.signal_tracker.append(np.copy(signal))
 
-        # Pace the simulator to match the automaton's internal tick
+        # Pace the simulator for display sync (no effect on the
+        # trajectory — the automaton ticks in sim time either way)
         if self.real_time_pacing:
             time.sleep(1.0 / 20)
 
@@ -269,12 +213,13 @@ class HybridAutomatonController(VesselController):
         pass
 
     def deep_copy(self):
-        """Create a fresh controller clone (asyncio loops can't be pickled)."""
+        """Create a fresh controller clone."""
         clone = HybridAutomatonController(
             None, self.dt,
             a=self.a, v=self.v, eta=self.eta, tp=self.tp,
             Cs=self.Cs, v1_buffer=self.v1_buffer,
             goal_waypoint=self.goal_waypoint,
+            tp_control=self.tp_control,
         )
         clone.controlled_vessel = None
         return clone
@@ -291,13 +236,8 @@ class HybridAutomatonController(VesselController):
         pass
 
     def shutdown(self):
-        """Stop the background automaton loop and release resources."""
-        self._ha.deactivate()
-        self._thread.join(timeout=2.0)
-        # Close the event loop to release file descriptors (selector + self-pipe)
-        if self._loop is not None and not self._loop.is_closed():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-            self._loop.close()
+        """Nothing to stop — the sync runtime has no background loop."""
+        pass
 
     # ---- obstacle access ----
 

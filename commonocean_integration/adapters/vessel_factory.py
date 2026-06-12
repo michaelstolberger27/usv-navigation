@@ -34,6 +34,7 @@ class ColavVesselFactory(VesselFactory):
         tp: float = 1.0,
         Cs: float = 2.0,
         v1_buffer: float = 0.0,
+        tp_control: float = None,
         vessel_type: VesselType = VesselType.Vessel1,
     ):
         super().__init__(dt, current_configuration)
@@ -43,6 +44,7 @@ class ColavVesselFactory(VesselFactory):
         # Controller parameters — passed to every vessel
         self.ctrl_params = dict(
             a=a, v=v, eta=eta, tp=tp, Cs=Cs, v1_buffer=v1_buffer,
+            tp_control=tp_control,
         )
 
     def get_parameters(self):

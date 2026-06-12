@@ -123,3 +123,68 @@ class TestAutomatonBehaviour:
         assert rt.t - rt._t_last_transition == 10.0
         rt.notify_waypoint_changed()
         assert rt.t - rt._t_last_transition == 0.0
+
+
+class TestStepExternal:
+    """Host-owned integration (the CommonOcean adapter pattern)."""
+
+    def _drive(self, n_max=1500, dt=1.0):
+        rt = SyncColavRuntime(
+            waypoint=(5000.0, 0.0),
+            obstacles=[(2500.0, 0.0, 5.0, np.pi)],
+            initial_state=(0.0, 0.0, 0.0),
+            **PARAMS,
+        )
+        # The host integrates the same heading plant the flows use
+        x, y, psi = 0.0, 0.0, 0.0
+        a, v = 1.67, PARAMS['v']
+        traj, transitions = [], []
+        for k in range(n_max):
+            ox = 2500.0 - 5.0 * (k * dt)
+            r = rt.step_external(dt, [x, y, psi],
+                                 obstacles=[(ox, 0.0, 5.0, np.pi)])
+            psi += (-a * psi + a * r.u) * dt
+            x += v * np.cos(psi) * dt
+            y += v * np.sin(psi) * dt
+            traj.append((x, y, psi))
+            if r.transition:
+                transitions.append((r.t, r.transition))
+            if np.hypot(5000.0 - x, y) < 10.0:
+                break
+        return np.array(traj), transitions
+
+    def test_external_integration_runs_full_cycle(self):
+        traj, transitions = self._drive()
+        names = [n for _, n in transitions]
+        assert names[:3] == ["avoid", "hold", "resume"]
+        assert len(traj) < 1500  # reached goal
+
+    def test_external_is_deterministic(self):
+        t1, tr1 = self._drive()
+        t2, tr2 = self._drive()
+        assert np.array_equal(t1, t2)
+        assert tr1 == tr2
+
+    def test_exit_reset_overwrites_u(self):
+        # apply_exit_avoidance sets u = psi on S3->S1 so the host's
+        # first post-resume yaw_rate is zero (see its docstring); the
+        # returned u must reflect the post-reset buffer.
+        rt = SyncColavRuntime(
+            waypoint=(5000.0, 0.0),
+            obstacles=[(2500.0, 0.0, 5.0, np.pi)],
+            initial_state=(0.0, 0.0, 0.0),
+            **PARAMS,
+        )
+        x, y, psi = 0.0, 0.0, 0.0
+        a, v = 1.67, PARAMS['v']
+        for k in range(1500):
+            ox = 2500.0 - 5.0 * k
+            r = rt.step_external(1.0, [x, y, psi],
+                                 obstacles=[(ox, 0.0, 5.0, np.pi)])
+            if r.transition == "resume":
+                assert r.u == pytest.approx(psi)
+                return
+            psi += (-a * psi + a * r.u) * 1.0
+            x += v * np.cos(psi) * 1.0
+            y += v * np.sin(psi) * 1.0
+        pytest.fail("resume transition never fired")

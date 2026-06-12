@@ -152,11 +152,25 @@ passing by luck: on the strait recording the ego enters S2, actually steers towa
 degenerate-hull V1 (async never did — its control was stale), then deadlocks in S3 off-goal
 (goal N, CPA 68 m, identical every rerun). This is open issue §3.3 reproduced exactly — the
 strait JSONL is now the regression fixture for those fixes.
-**Remaining for phase 4:** (a) migrate `commonocean_integration/adapters/controller.py` to
-the sync runtime — needs a `step` variant with externally-integrated state (the sim's vessel
-model owns integration; runtime should evaluate control+guards only); (b) full Handcrafted
-batch A/B async-vs-sync to certify the validated numbers carry over; (c) only then make sync
-the default everywhere.
+**Adapter migration (DONE 2026-06-12).** `step_external()` added (host owns integration;
+returned u is the post-reset buffer value, matching async semantics);
+`HybridAutomatonController` now steps the sync runtime once per sim tick — no background
+thread. Determinism shown in-sim: T-838 three runs identical to the last decimal; an
+8-scenario batch re-invocation reproduced every metric column exactly.
+**KEY FINDING — tp_control:** the prescribed-time law's tp=3 s horizon was only ever stable
+because the async runtime measured it in *wall* time (≈200 sim steps at batch speed);
+evaluated faithfully at dt=1 the singular gain spans 3 samples and destabilised the YP plant
+(collisions on T-46/T-584/T-1289). `tp_control` now decouples the control-convergence
+horizon from tp (which still sets dsafe/delta). Sweep {30,60,120,200} sim-s on the 8 key
+scenarios: **60 wins** — 8/8 goals, 0 collisions, CPAs within metres of the async baseline
+(T-27 719/718, T-28 461/461, T-584 707/701, T-830 690/682, T-1022 572/575), and T-838
+passes at 314 m (it never passed reliably before). 30 → 3 goal failures; 120 → T-838
+collides; 200 → all CPAs degrade. Adapter default: `max(60*dt, tp)`; `--tp-control` sweep
+flag on the handcrafted batch script.
+**Remaining for phase 4:** full 2000-scenario A/B (sync vs async baseline 1 collision/1999
+goals) — RUNNING in the container (`output/batch_eval_handcrafted_sync/`, started
+2026-06-12); then re-run MarineCadastre, retire the async path from the adapter docs, and
+make sync the documented default everywhere.
 
 **Phase 5 — GPU-vectorized Monte Carlo evaluator.** JAX or NVIDIA Warp re-implementation of
 the lightweight parts (kinematics, guards, risk index, V1 geometry) to run thousands of

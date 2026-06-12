@@ -322,6 +322,9 @@ def main():
     parser.add_argument('--resume', action='store_true',
                         help='Skip already-completed scenarios if CSV exists')
     parser.add_argument('--dt', type=float, default=1.0)
+    parser.add_argument('--tp-control', type=float, default=None,
+                        help='Prescribed-time control horizon in sim s '
+                             '(default: tp; see SyncColavRuntime docstring)')
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -357,7 +360,8 @@ def main():
         print(f"Resuming: {len(completed_ids)} scenarios already completed")
 
     config = setup_config(args.dt, args.max_runtime)
-    colav_params = dict(a=1.67, v=12.0, eta=3.5, tp=3.0, Cs=300.0)
+    colav_params = dict(a=1.67, v=12.0, eta=3.5, tp=3.0, Cs=300.0,
+                        tp_control=args.tp_control)
 
     results = existing_results
     for i, xml_path in enumerate(xml_files):

@@ -154,6 +154,7 @@ class SyncColavRuntime:
         m: float = 3.0,
         K: float = 0.35,
         K_off: float = 0.25,
+        tp_control: Optional[float] = None,
         dcpa_beta1: float = 463.0,
         dcpa_beta2: float = 926.0,
         tcpa_beta1: float = 120.0,
@@ -189,6 +190,15 @@ class SyncColavRuntime:
         self.mode = S1
         self.t = 0.0
         self._t_last_transition = 0.0
+
+        # Convergence horizon of the prescribed-time control law, in
+        # sim seconds. Decoupled from tp (which also sets dsafe/delta)
+        # because the paper's law assumes dt << tp; with the evaluation
+        # dt ~ 1 s a literal tp of a few seconds leaves the singular
+        # gain only 2-3 samples wide and destabilises the heading. The
+        # async runtime hid this by measuring t in *wall* time, which
+        # stretched the ramp over hundreds of sim steps at batch speed.
+        self._tp_control = float(tp_control) if tp_control is not None else tp
 
     # ---- public accessors ----
 
@@ -246,7 +256,7 @@ class SyncColavRuntime:
         u = compute_prescribed_time_control(
             self.t - self._t_last_transition,
             state[0], state[1], state[2], wx, wy,
-            a=cfg['a'], v=cfg['v'], eta=cfg['eta'], tp=cfg['tp'],
+            a=cfg['a'], v=cfg['v'], eta=cfg['eta'], tp=self._tp_control,
         )
         ctx.control_input_states['u'].add(np.array([u]))
 
@@ -271,5 +281,59 @@ class SyncColavRuntime:
             state=ctx.continuous_state.latest().copy(),
             mode=self.mode,
             u=float(u),
+            transition=fired,
+        )
+
+    def step_external(
+        self,
+        dt: float,
+        state,
+        obstacles: Optional[List[Tuple[float, float, float, float]]] = None,
+    ) -> StepResult:
+        """
+        Tick variant for hosts that own the vessel integration (a
+        simulator's vessel model, or real hardware): inject the
+        externally-measured state, compute this tick's control input,
+        and evaluate guards/transitions — but do not integrate.
+
+        The host applies the returned u itself (for the heading plant
+        used here: yaw_rate = -a*psi + a*u). Note the returned u is the
+        post-transition value: resets may overwrite it (apply_exit_
+        avoidance sets u = psi to clear the near-singular prescribed-
+        time term — see its docstring), matching the async runtime
+        where the reset writes the same buffer the host reads.
+        """
+        ctx = self._ctx
+        if obstacles is not None:
+            ctx.configuration['obstacles'] = list(obstacles)
+        ctx.continuous_state.add(np.asarray(state, dtype=float))
+
+        # Control for this tick (sim-time prescribed-time clock)
+        s = ctx.continuous_state.latest()
+        wx, wy = ctx.configuration['waypoints'][-1]
+        cfg = ctx.configuration
+        u = compute_prescribed_time_control(
+            self.t - self._t_last_transition,
+            s[0], s[1], s[2], wx, wy,
+            a=cfg['a'], v=cfg['v'], eta=cfg['eta'], tp=self._tp_control,
+        )
+        ctx.control_input_states['u'].add(np.array([u]))
+        self.t += dt
+
+        # Guards — at most one transition per tick
+        fired = None
+        for name, target, guard, reset_fn in _TRANSITIONS[self.mode]:
+            if guard.func(ctx):
+                reset_fn(ctx)
+                self.mode = target
+                self._t_last_transition = self.t
+                fired = name
+                break
+
+        return StepResult(
+            t=self.t,
+            state=ctx.continuous_state.latest().copy(),
+            mode=self.mode,
+            u=float(ctx.control_input_states['u'].latest()),
             transition=fired,
         )

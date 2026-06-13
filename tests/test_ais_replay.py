@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from ais_replay.geo import LocalFrame, M_PER_DEG_LAT, cog_to_psi, knots_to_ms
+from ais_replay.runner import ReplayRunner
 from ais_replay.sources import RecordedAISSource, parse_aisstream_message
 from ais_replay.tracker import AISReport, TrafficTracker
 
@@ -24,6 +25,16 @@ class TestLocalFrame:
         lat, lon = frame.to_latlon(*frame.to_xy(1.25, 103.9))
         assert lat == pytest.approx(1.25, abs=1e-9)
         assert lon == pytest.approx(103.9, abs=1e-9)
+
+    def test_does_not_wrap_antimeridian(self):
+        # Documents a known limitation: the equirectangular projection is
+        # not antimeridian-aware. Two points either side of +/-180 lon are
+        # ~0.02 deg apart in reality but project ~40000 km apart here.
+        # The adapter targets bounded harbour/strait bboxes, never the
+        # dateline; revisit if an operating area straddles +/-180.
+        frame = LocalFrame(0.0, 179.99)
+        x_east, _ = frame.to_xy(0.0, -179.99)
+        assert abs(x_east) > 3.9e7  # no wrap: ~40000 km, not ~2 km
 
     def test_one_degree_latitude(self):
         frame = LocalFrame(1.2, 103.85)
@@ -150,3 +161,41 @@ class TestRecordedAISSource:
         assert len(tracker) == 3  # all three sample vessels seen
         # Feeding the same window again is a no-op
         assert source.feed_until(tracker, source.t_start + 60.0) == 0
+
+
+class TestReplayRunner:
+    """End-to-end smoke test: the automaton driven through recorded AIS."""
+
+    def _run(self):
+        frame = LocalFrame(1.2, 103.85)
+        source = RecordedAISSource(str(SAMPLE))
+        tracker = TrafficTracker(frame)
+        start = frame.to_xy(1.2000, 103.8500)
+        goal = frame.to_xy(1.2000, 103.8880)
+        psi0 = float(np.arctan2(goal[1] - start[1], goal[0] - start[0]))
+        runner = ReplayRunner(
+            source, tracker,
+            ego_start=(start[0], start[1], psi0), goal=goal,
+            v=6.0, Cs=300.0, tp=3.0, pace=0.0, max_duration=1800.0,
+        )
+        summary = runner.run(verbose=False)
+        return runner, summary
+
+    def test_completes_and_trackers_aligned(self):
+        runner, summary = self._run()
+        n = len(runner.times)
+        assert n > 0
+        # All step-indexed trackers advance one entry per tick.
+        assert len(runner.position_tracker) == n
+        assert len(runner.state_tracker) == n
+        assert summary["steps"] == n
+
+    def test_deterministic(self):
+        # The sync runtime is the whole point: identical recorded inputs
+        # must give a bit-identical trajectory (the async runner needed
+        # yaw-clamp + pacing hacks to even approximate this).
+        r1, s1 = self._run()
+        r2, s2 = self._run()
+        assert np.array_equal(np.array(r1.position_tracker),
+                              np.array(r2.position_tracker))
+        assert s1 == s2

@@ -12,10 +12,6 @@ Animates the simulation showing:
 """
 
 import sys
-import asyncio
-import csv
-import json
-import re
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -23,7 +19,6 @@ OUTPUT_DIR = SCRIPT_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 sys.path.insert(0, str(SCRIPT_DIR.parent / 'src'))
 
-import os
 import matplotlib
 # Use Agg backend for saving (non-interactive)
 matplotlib.use('Agg')
@@ -34,9 +29,8 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.lines import Line2D
 from typing import List, Tuple, Optional
 
-from colav_automaton import ColavAutomaton
-from hybrid_automaton import Automaton, RunResult
-from colav_automaton.controllers import get_unsafe_set_vertices, create_los_cone, HeadingControlProvider
+from colav_automaton import SyncColavRuntime
+from colav_automaton.controllers import get_unsafe_set_vertices
 
 
 # Scenario configurations (matching simulate_colav.py)
@@ -163,11 +157,11 @@ class RealtimeSimulation:
         self.time_text = None
 
     def setup_automaton(self):
-        """Create and initialize the automaton."""
-        self.automaton = ColavAutomaton(
-            waypoint_x=self.waypoint[0],
-            waypoint_y=self.waypoint[1],
+        """Create the deterministic tick-synchronous automaton."""
+        self.automaton = SyncColavRuntime(
+            waypoint=(self.waypoint[0], self.waypoint[1]),
             obstacles=self.initial_obstacles,
+            initial_state=tuple(self.initial_state),
             Cs=self.Cs,
             tp=self.tp,
             v=self.v,
@@ -300,75 +294,37 @@ class RealtimeSimulation:
         self.ax.add_patch(self.heading_arrow)
 
     def run_simulation(self):
-        """Run the full simulation and store results."""
+        """
+        Run the simulation with the deterministic runtime and store results.
+
+        Steps the automaton tick-by-tick, feeding the moving obstacle
+        positions each tick so the guards see the live scene (the goal
+        bearing and unsafe sets evolve as the obstacles move). Identical
+        inputs give a bit-identical trajectory every run.
+        """
         print("Running simulation...")
 
-        run_output_dir = str(OUTPUT_DIR / f"run_scenario{self.scenario_id}")
-
-        controller = HeadingControlProvider(self.automaton)
-
-        results: RunResult = asyncio.run(self.automaton.activate(
-            initial_continuous_state=np.array(self.initial_state, dtype=float),
-            initial_control_input_states={'u': np.array([0.0])},
-            enable_real_time_mode=False,
-            enable_self_integration=True,
-            delta_time=0.01,
-            timeout_sec=self.duration,
-            continuous_state_sampler_enabled=True,
-            continuous_state_sampler_rate=100,
-            control_states_provider=controller,
-            control_states_provision_rate=100,
-            output_dir=run_output_dir,
-        ))
-
-        # Read continuous state trajectory from sampler CSV
-        csv_path = os.path.join(run_output_dir, "continuous_state.csv")
-        with open(csv_path, 'r') as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
-            for row in reader:
-                t = float(row[0])
-                state = json.loads(row[1])
-                self.sim_times.append(t)
-                self.sim_states.append(state)
-
-        # Parse mode transitions from temporal log
-        log_path = os.path.join(run_output_dir, "temporal_automaton.log")
-        transitions = []
-        with open(log_path, 'r') as f:
-            for line in f:
-                match = re.search(
-                    r"\[INFO\]\s*\[(\d+\.?\d*)\].*\[Transition\]\s*'(\w+)'\s*--\[.*\]-->\s*'(\w+)'",
-                    line
-                )
-                if match:
-                    t = float(match.group(1))
-                    to_state = match.group(3)
-                    transitions.append((t, to_state))
-
-        # Build mode list for each timestep
         mode_map = {
             'WAYPOINT_REACHING': 'S1',
             'COLLISION_AVOIDANCE': 'S2',
             'CONSTANT_CONTROL': 'S3',
         }
-        current_mode = 'WAYPOINT_REACHING'
-        trans_idx = 0
-        for t in self.sim_times:
-            while trans_idx < len(transitions) and transitions[trans_idx][0] <= t:
-                current_mode = transitions[trans_idx][1]
-                trans_idx += 1
-            self.sim_modes.append(mode_map.get(current_mode, 'S1'))
+        dt = 0.05
+        n_steps = int(self.duration / dt)
+        waypoint_threshold = max(0.5, self.automaton.configuration['delta'])
 
-        # Truncate simulation when waypoint is reached
-        waypoint_threshold = 0.5
-        for i, state in enumerate(self.sim_states):
-            dist = np.sqrt((state[0] - self.waypoint[0])**2 + (state[1] - self.waypoint[1])**2)
+        for k in range(n_steps):
+            t = k * dt
+            obstacles = self.get_current_obstacles(t)
+            result = self.automaton.step(dt, obstacles=obstacles)
+            self.sim_times.append(result.t)
+            self.sim_states.append(list(result.state))
+            self.sim_modes.append(mode_map.get(result.mode, 'S1'))
+
+            dist = np.hypot(result.state[0] - self.waypoint[0],
+                            result.state[1] - self.waypoint[1])
             if dist < waypoint_threshold:
-                self.sim_times = self.sim_times[:i+1]
-                self.sim_states = self.sim_states[:i+1]
-                self.sim_modes = self.sim_modes[:i+1]
-                print(f"Waypoint reached at t={self.sim_times[-1]:.2f}s")
+                print(f"Waypoint reached at t={result.t:.2f}s")
                 break
 
         print(f"Simulation complete: {len(self.sim_states)} samples")

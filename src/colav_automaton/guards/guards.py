@@ -1,4 +1,3 @@
-import numpy as np
 from hybrid_automaton.definition import guard
 from hybrid_automaton import RuntimeContext
 from colav_automaton.guards.conditions import (

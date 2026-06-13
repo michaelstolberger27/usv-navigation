@@ -1,6 +1,8 @@
 # USV Navigation - Collision Avoidance Automaton
 
-[![CI](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml/badge.svg?branch=Updates)](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml)
+[![CI](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
 A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface Vehicles (USVs) that provides provably safe autonomous navigation in dynamic environments.
 

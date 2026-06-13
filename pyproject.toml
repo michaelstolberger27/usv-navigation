@@ -4,17 +4,35 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "colav-automaton"
-version = "0.0.1"
+version = "0.1.0"
 description = "Hybrid-automaton-based COLREGs-compliant collision avoidance for USVs"
+readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Michael Stolberger"}]
 requires-python = ">=3.10"
+keywords = [
+    "collision-avoidance", "colregs", "usv", "hybrid-automaton",
+    "maritime", "autonomous-navigation", "robotics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "numpy",
     "shapely",
     "hybrid-automaton",
     "colav-unsafe-set",
 ]
+
+[project.urls]
+Repository = "https://github.com/michaelstolberger27/usv-navigation"
+Issues = "https://github.com/michaelstolberger27/usv-navigation/issues"
 
 [project.optional-dependencies]
 viz = ["matplotlib"]
@@ -29,3 +47,12 @@ testpaths = ["tests"]
 # -p no:cacheprovider keeps the repo clean; addopts kept minimal so a plain
 # `pytest` works the same locally and in CI.
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint.per-file-ignores]
+# Entry-point scripts must extend sys.path before importing project modules
+"ais_replay/scripts/*" = ["E402"]
+"commonocean_integration/scripts/*" = ["E402"]
+"examples/*" = ["E402"]

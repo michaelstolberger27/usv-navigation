@@ -25,7 +25,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, FancyArrowPatch
+from matplotlib.patches import Rectangle
 from matplotlib.transforms import Affine2D
 
 from commonocean.common.file_reader import CommonOceanFileReader
@@ -60,7 +60,6 @@ def plot_scenario(scenario_path, dt, config, colav_params, output_dir):
     goal_pos = extract_center_point_of_region(pp.goal)
     goal_state = pp.goal.state_list[0]
     goal_shape = goal_state.position
-    init = pp.initial_state
 
     # Traffic trajectory
     dyn_obs = list(scenario.dynamic_obstacles)[0] if scenario.dynamic_obstacles else None

@@ -8,7 +8,6 @@ type-checks for the runtime Context, so tests invoke the undecorated
 function via `.func` with a minimal stand-in context.
 """
 import numpy as np
-import pytest
 
 from colav_automaton.guards import (
     G11_and_G22_guard,

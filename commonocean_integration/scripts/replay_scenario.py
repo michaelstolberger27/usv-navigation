@@ -253,7 +253,7 @@ def run_scenario_visual(scenario_path, dt, config, colav_params, dataset):
           f"heading={np.degrees(init.orientation):.1f}deg v={init.velocity:.2f}m/s")
     print(f"  Goal: ({goal_pos[0]:.0f}, {goal_pos[1]:.0f}), dist={approach_dist:.0f}m")
     print(f"  Cs={colav_params['Cs']:.0f}m")
-    print(f"  Running with visual display...")
+    print("  Running with visual display...")
 
     sim.display_run()
 

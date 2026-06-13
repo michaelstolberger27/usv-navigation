@@ -94,9 +94,9 @@ vessel_2 = mpc_factory.get_vessel(
     ship_name="MPC_West", vesselid=20,
 )
 
-print(f"  COLAV: pos=(0,0) heading=0deg v=5m/s")
-print(f"  MPC:   pos=(2400,50) heading=180deg v=5m/s")
-print(f"  Separation: 2400m, closing speed: 10m/s")
+print("  COLAV: pos=(0,0) heading=0deg v=5m/s")
+print("  MPC:   pos=(2400,50) heading=180deg v=5m/s")
+print("  Separation: 2400m, closing speed: 10m/s")
 
 # ---- Build and run simulation ----
 simfac = SimulatorFactory(dt)

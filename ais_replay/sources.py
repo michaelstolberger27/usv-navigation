@@ -8,7 +8,7 @@ both paths.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterator, List, Optional
 
 from ais_replay.tracker import AISReport, TrafficTracker

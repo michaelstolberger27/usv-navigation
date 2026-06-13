@@ -157,7 +157,23 @@ class RealtimeSimulation:
         self.time_text = None
 
     def setup_automaton(self):
-        """Create the deterministic tick-synchronous automaton."""
+        """Create the deterministic tick-synchronous automaton.
+
+        Two parameters are set for this small-scale demo (Cs ~ 2-8 m),
+        distinct from the CommonOcean evaluation defaults (Cs = 300 m):
+
+        - K_off=1.0 recovers the paper's pure ¬G23 resume (Figure 8).
+          The risk-index resume hysteresis (K_off < K) is calibrated in
+          metres/seconds for the 300 m evaluation scale; at a few-metre
+          scale its distance term saturates and would block resume
+          entirely. The demo shows the canonical automaton instead.
+        - tp_control decouples the prescribed-time convergence horizon
+          from tp (which also sets dsafe). The control law assumes
+          dt << tp_horizon; at dt=0.05 a literal tp of ~1 s leaves the
+          singular gain only ~20 samples wide and the heading overshoots
+          after resume. max(2.0, tp) keeps it stable (same reasoning as
+          the CommonOcean adapter's tp_control).
+        """
         self.automaton = SyncColavRuntime(
             waypoint=(self.waypoint[0], self.waypoint[1]),
             obstacles=self.initial_obstacles,
@@ -166,6 +182,8 @@ class RealtimeSimulation:
             tp=self.tp,
             v=self.v,
             v1_buffer=self.v1_buffer,
+            K_off=1.0,
+            tp_control=max(2.0, self.tp),
         )
 
     def get_current_obstacles(self, t: float) -> List[Tuple[float, float, float, float]]:

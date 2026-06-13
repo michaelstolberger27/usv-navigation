@@ -329,7 +329,11 @@ class RealtimeSimulation:
         }
         dt = 0.05
         n_steps = int(self.duration / dt)
-        waypoint_threshold = max(0.5, self.automaton.configuration['delta'])
+        # Display-arrival radius: stop when the vessel visually reaches the
+        # goal marker. This is deliberately tighter than the automaton's
+        # control tolerance (cfg['delta'], a few metres) so the demo runs
+        # all the way onto the star rather than stopping short of it.
+        arrival_radius = 1.5
 
         for k in range(n_steps):
             t = k * dt
@@ -341,8 +345,9 @@ class RealtimeSimulation:
 
             dist = np.hypot(result.state[0] - self.waypoint[0],
                             result.state[1] - self.waypoint[1])
-            if dist < waypoint_threshold:
-                print(f"Waypoint reached at t={result.t:.2f}s")
+            if dist < arrival_radius:
+                print(f"Goal reached at t={result.t:.2f}s "
+                      f"({dist:.1f} m from waypoint)")
                 break
 
         print(f"Simulation complete: {len(self.sim_states)} samples")

@@ -49,9 +49,19 @@ def compute_prescribed_time_control(
     # Heading error (wrapped to [-pi, pi])
     e = np.arctan2(np.sin(psi - psi_dg), np.cos(psi - psi_dg))
 
-    # Feedforward + prescribed-time feedback
+    # Feedforward + prescribed-time feedback.
+    #
+    # The feedback gain grows like 1/(tp - t) by design, so convergence is
+    # forced as t -> tp. In discrete time a sample can land at t ~ tp (e.g.
+    # when tp is an exact multiple of the step), collapsing the denominator
+    # so that even the tiny residual heading error is amplified into a
+    # one-step control spike — a visible trajectory kink near arrival.
+    # Floor the time-remaining at a small fraction of tp: this bounds the
+    # peak gain while leaving convergence unchanged across the whole window
+    # except its final ~1%, where the law has already converged.
     if t < tp:
-        u = (1 / a) * psi_dg_dot + psi - eta * e / (a * (tp - t + 1e-6))
+        tau = max(tp - t, 0.01 * tp)
+        u = (1 / a) * psi_dg_dot + psi - eta * e / (a * tau)
     else:
         u = (1 / a) * psi_dg_dot + psi
 

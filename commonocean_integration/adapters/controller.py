@@ -85,6 +85,7 @@ class HybridAutomatonController(VesselController):
         self.position_tracker = []  # Track actual vessel positions
         self.state_tracker = []  # Track automaton states
         self.v1_tracker = []  # Track virtual waypoints (V1) during avoidance
+        self.v1_side_tracker = []  # 'port'/'starboard' of the active V1, else None
         self.unsafe_set_tracker = []  # Track unsafe set polygon coords each step
         self.real_time_pacing = True  # sleep(dt) each tick for display sync
         self._last_waypoint = None  # track waypoint changes
@@ -140,8 +141,10 @@ class HybridAutomatonController(VesselController):
         if state_name in ['COLLISION_AVOIDANCE', 'CONSTANT_CONTROL'] \
                 and len(cfg['waypoints']) >= 2:
             self.v1_tracker.append(cfg['waypoints'][-1])
+            self.v1_side_tracker.append(cfg.get('last_v1_side'))
         else:
             self.v1_tracker.append(None)
+            self.v1_side_tracker.append(None)
 
         # Track unsafe set polygon for visualisation (best-effort, skip on error)
         try:

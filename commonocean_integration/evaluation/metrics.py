@@ -3,9 +3,16 @@ Metrics extraction from COLAV controller tracker data.
 
 Used by the batch evaluation runner to compute per-scenario metrics
 after a commonocean-sim simulation completes.
+
+Encounter classification is imported from the controller's own
+implementation so the labels in the results CSV always match the
+geometry the COLREGs logic actually acted on (an earlier local copy
+used different overtaking criteria and could disagree).
 """
 
 import numpy as np
+
+from colav_automaton.guards.conditions import classify_encounter
 
 
 def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
@@ -82,20 +89,11 @@ def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
         if yr > max_yaw:
             max_yaw = yr
 
-    # Rule 17b detection: port turn during avoidance
-    # When S1→S2 transition occurs, check if the heading change over the
-    # next few steps is positive (port) rather than negative (starboard).
-    rule_17b = False
-    for i in range(1, len(states)):
-        if states[i] == 'COLLISION_AVOIDANCE' and states[i - 1] == 'WAYPOINT_REACHING':
-            # Compare heading at avoidance entry vs a few steps later
-            psi_entry = positions[i][2]
-            lookahead = min(i + 20, len(positions) - 1)
-            psi_later = positions[lookahead][2]
-            delta_psi = np.arctan2(np.sin(psi_later - psi_entry), np.cos(psi_later - psi_entry))
-            if delta_psi > 0.01:  # positive = port turn
-                rule_17b = True
-                break
+    # Port-side avoidance: read the V1 side the controller actually
+    # chose (recorded by apply_enter_avoidance), instead of inferring
+    # it from heading deltas as the old rule_17b heuristic did.
+    sides = getattr(controller, 'v1_side_tracker', [])
+    port_avoidance = any(s == 'port' for s in sides)
 
     # Initial ego-obstacle distance (for checking paper Assumption 1)
     if closest_obs is not None and positions:
@@ -104,7 +102,9 @@ def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
         obs_pos = np.array([traffic_init_x, traffic_init_y])
         init_distance = np.linalg.norm(ego_pos - obs_pos)
         encounter = classify_encounter(
-            ego_pos, ego_heading, obs_pos, traffic_init_orientation,
+            ego_heading,
+            [(traffic_init_x, traffic_init_y, 0.0, traffic_init_orientation)],
+            ego_pos[0], ego_pos[1],
         )
     else:
         init_distance = float('nan')
@@ -128,7 +128,7 @@ def extract_metrics(controller, scenario, goal_pos, goal_rect, scenario_id, dt):
         'traffic_init_y': traffic_init_y,
         'traffic_init_orientation': traffic_init_orientation,
         'encounter_type': encounter,
-        'rule_17b_invoked': rule_17b,
+        'port_avoidance': port_avoidance,
         'init_distance': init_distance,
     }
 
@@ -145,7 +145,9 @@ def compute_cpa(position_tracker, dynamic_obstacle, max_steps):
     for t in range(min(len(position_tracker), max_steps)):
         obs_state = dynamic_obstacle.state_at_time(t)
         if obs_state is None:
-            break
+            # Trajectory gap or late start — keep scanning; breaking
+            # here would silently truncate CPA measurement.
+            continue
         ego_pos = np.array(position_tracker[t][:2])
         obs_pos = np.array(obs_state.position)
         dist = np.linalg.norm(ego_pos - obs_pos)
@@ -175,27 +177,3 @@ def check_goal_reached(position_tracker, goal_center, goal_length, goal_width, g
         if abs(local_x) <= half_l and abs(local_y) <= half_w:
             return True, t
     return False, None
-
-
-def classify_encounter(ego_pos, ego_heading, traffic_pos, traffic_heading):
-    """
-    Classify encounter geometry based on initial relative positions and headings.
-
-    Returns one of: 'head_on', 'crossing_from_port', 'crossing_from_starboard', 'overtaking'
-    """
-    heading_diff = (traffic_heading - ego_heading + np.pi) % (2 * np.pi) - np.pi
-
-    if abs(heading_diff) > 2.8:  # ~160 deg — roughly opposing
-        return 'head_on'
-    if abs(heading_diff) < 0.5:  # ~30 deg — same direction
-        return 'overtaking'
-
-    bearing = np.arctan2(
-        traffic_pos[1] - ego_pos[1],
-        traffic_pos[0] - ego_pos[0],
-    )
-    relative_bearing = (bearing - ego_heading + np.pi) % (2 * np.pi) - np.pi
-
-    if relative_bearing > 0:
-        return 'crossing_from_port'
-    return 'crossing_from_starboard'

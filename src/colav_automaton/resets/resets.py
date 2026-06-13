@@ -59,6 +59,12 @@ def apply_enter_avoidance(ctx):
     )
 
     if v1 is not None:
+        # Record which side the chosen V1 lies on (positive relative
+        # bearing = port). Evaluation reads this instead of inferring
+        # the turn direction from heading deltas after the fact.
+        rel = np.arctan2(v1[1] - pos_y, v1[0] - pos_x) - psi
+        rel = np.arctan2(np.sin(rel), np.cos(rel))
+        cfg['last_v1_side'] = 'port' if rel > 0 else 'starboard'
         cfg['waypoints'].append(v1)
 
     return ctx

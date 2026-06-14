@@ -293,16 +293,22 @@ encounter scenarios with real curving traffic trajectories; ego `Cs=300 m`, `tp=
 
 | Metric | Result |
 |---|---|
-| Collisions | 1 / 2000 |
+| Collisions | **0 / 2000** |
 | Goal reached | 1999 / 2000 |
-| Scenarios with avoidance activated | ~835 |
-| Average CPA during avoidance | ~540 m |
+| Scenarios with avoidance activated | 814 |
+| Average CPA during avoidance | ~556 m |
 
-Successive design iterations on this dataset: 16 collisions / 21 goal failures (V1 from
-current obstacle positions) → 1 / 5 (V1 from a horizon-capped swept region) → **1 / 1**
-(adding the `K_off` resume hysteresis, see [Guard Conditions](#guard-conditions)). The one
-remaining failure is a borderline crossing scenario tracked in `HANDOFF.md`. A 25-scenario
-MarineCadastre (AIS-derived) set is also evaluated via `batch_evaluate_marine_cadastre.py`.
+Successive design iterations on this dataset (collisions / goal failures): 16 / 21 (V1 from
+current obstacle positions) → 1 / 5 (V1 from a horizon-capped swept region) → 1 / 1 (adding
+the `K_off` resume hysteresis, see [Guard Conditions](#guard-conditions)) → **0 / 1** (the
+[deterministic runtime](#deterministic-synchronous-usage), which removed the last collision
+and made every result reproducible). The one remaining failure is a no-collision miss
+(avoided safely at 532 m CPA but did not reach the goal in the step budget), tracked in
+`HANDOFF.md`. A 25-scenario MarineCadastre (AIS-derived) set is also evaluated via
+`batch_evaluate_marine_cadastre.py`.
+
+These figures are from the tick-synchronous runtime and are bit-identical across reruns; the
+earlier wall-clock async runtime produced the 1-collision row above and varied run to run.
 
 ## Running the Tests
 

@@ -11,3 +11,7 @@ thesis/
 
 # Local secrets — never commit
 .aisstream_key
+# ROS 2 colcon build artifacts
+ros2/build/
+ros2/install/
+ros2/log/

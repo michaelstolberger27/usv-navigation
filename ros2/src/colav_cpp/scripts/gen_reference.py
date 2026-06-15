@@ -27,6 +27,9 @@ from colav_automaton.controllers.prescribed_time import (  # noqa: E402
 from colav_automaton.guards.conditions import (  # noqa: E402
     L1_check, L2_check, compute_risk_index, G22_check, G11_check, G23_check,
 )
+from colav_automaton.controllers import (  # noqa: E402
+    compute_v1, get_unsafe_set_vertices, default_vertex_provider,
+)
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "test")
 
@@ -130,12 +133,59 @@ def gen_geom(path):
                       + f",{int(g11)},{int(g23)}\n")
 
 
+def gen_v1(path):
+    rng = random.Random(24681357)
+    cols = ["px", "py", "psi", "v", "tp", "Cs",
+            "ox", "oy", "ov", "opsi", "has_v1", "v1x", "v1y"]
+    with open(path, "w") as out:
+        out.write(",".join(cols) + "\n")
+        for _ in range(1500):
+            px = rng.uniform(-100.0, 100.0)
+            py = rng.uniform(-100.0, 100.0)
+            psi = rng.uniform(-math.pi, math.pi)
+            v = rng.uniform(4.0, 12.0)
+            tp = rng.uniform(1.0, 3.0)
+            Cs = rng.uniform(150.0, 400.0)
+            # obstacle ahead-ish so a V1 vertex exists most of the time
+            ahead = rng.uniform(400.0, 2500.0)
+            lat = rng.uniform(-1.5, 1.5) * Cs
+            ox = px + ahead * math.cos(psi) - lat * math.sin(psi)
+            oy = py + ahead * math.sin(psi) + lat * math.cos(psi)
+            ov = rng.uniform(0.0, 10.0)
+            opsi = rng.uniform(-math.pi, math.pi)
+
+            # Exactly as reset_enter_avoidance constructs it.
+            v1_Cs = Cs + 0.25 * Cs
+            dsafe = Cs + v * tp
+            max_horizon = max(60.0, 3.0 * dsafe / v)
+            obstacles = [(ox, oy, ov, opsi)]
+
+            def vertex_provider(qx, qy, obs, cs, heading,
+                                _dsafe=dsafe, _v=v, _mh=max_horizon, _c=v1_Cs):
+                verts = get_unsafe_set_vertices(
+                    qx, qy, obs, _c, dsf=_dsafe, ship_psi=heading, ship_v=_v,
+                    use_swept_region=True, max_horizon=_mh)
+                if verts is not None:
+                    return verts
+                return default_vertex_provider(qx, qy, obs, _c, heading)
+
+            v1 = compute_v1(px, py, psi, obstacles, v1_Cs,
+                            vertex_provider, 0.0, v=v)
+            if v1 is None:
+                out.write(_row([px, py, psi, v, tp, Cs, ox, oy, ov, opsi])
+                          + ",0,0.0,0.0\n")
+            else:
+                out.write(_row([px, py, psi, v, tp, Cs, ox, oy, ov, opsi])
+                          + f",1,{v1[0]!r},{v1[1]!r}\n")
+
+
 def main():
     os.makedirs(TEST_DIR, exist_ok=True)
     gen_control(os.path.join(TEST_DIR, "reference_control.csv"))
     gen_risk(os.path.join(TEST_DIR, "reference_risk.csv"))
     gen_geom(os.path.join(TEST_DIR, "reference_geom.csv"))
-    print("wrote reference_{control,risk,geom}.csv to", TEST_DIR)
+    gen_v1(os.path.join(TEST_DIR, "reference_v1.csv"))
+    print("wrote reference_{control,risk,geom,v1}.csv to", TEST_DIR)
 
 
 if __name__ == "__main__":

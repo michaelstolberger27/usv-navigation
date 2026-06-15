@@ -74,7 +74,28 @@ StepResult SyncRuntime::step(double dt, const std::vector<Obstacle>* obstacles) 
   t_ += dt;
 
   // 3. Guards — at most one transition, evaluated on the new state.
-  std::string fired;
+  const std::string fired = evaluate_guards();
+  return {t_, x_, y_, psi_, mode_, u_, fired};
+}
+
+StepResult SyncRuntime::step_external(double dt, double x, double y, double psi,
+                                      const std::vector<Obstacle>* obstacles) {
+  if (obstacles != nullptr) obstacles_ = *obstacles;
+  x_ = x;
+  y_ = y;
+  psi_ = psi;
+
+  const Point& target = waypoints_.back();
+  u_ = prescribed_time_control(t_ - t_last_transition_, x_, y_, psi_,
+                               target.x, target.y, p_.a, p_.v, p_.eta,
+                               tp_control_);
+  t_ += dt;  // host owns integration; we only evaluate
+
+  const std::string fired = evaluate_guards();
+  return {t_, x_, y_, psi_, mode_, u_, fired};
+}
+
+std::string SyncRuntime::evaluate_guards() {
   const Point goal = waypoints_.front();
   if (mode_ == Mode::S1_WaypointReaching) {
     if (g11_check(x_, y_, psi_, goal.x, goal.y, p_.v, p_.tp, obstacles_, p_.Cs) &&
@@ -85,7 +106,7 @@ StepResult SyncRuntime::step(double dt, const std::vector<Obstacle>* obstacles) 
       if (v1) waypoints_.push_back(*v1);
       mode_ = Mode::S2_CollisionAvoidance;
       t_last_transition_ = t_;
-      fired = "avoid";
+      return "avoid";
     }
   } else if (mode_ == Mode::S2_CollisionAvoidance) {
     if (waypoints_.size() >= 2) {
@@ -96,7 +117,7 @@ StepResult SyncRuntime::step(double dt, const std::vector<Obstacle>* obstacles) 
         waypoints_.pop_back();  // reset_reach_V1
         mode_ = Mode::S3_ConstantControl;
         t_last_transition_ = t_;
-        fired = "hold";
+        return "hold";
       }
     }
   } else {  // S3
@@ -107,12 +128,11 @@ StepResult SyncRuntime::step(double dt, const std::vector<Obstacle>* obstacles) 
         u_ = psi_;  // reset_exit_avoidance
         mode_ = Mode::S1_WaypointReaching;
         t_last_transition_ = t_;
-        fired = "resume";
+        return "resume";
       }
     }
   }
-
-  return {t_, x_, y_, psi_, mode_, u_, fired};
+  return "";
 }
 
 }  // namespace colav

@@ -45,10 +45,21 @@ class SyncRuntime {
   // obstacle list to update it, or leave empty to keep the previous one.
   StepResult step(double dt, const std::vector<Obstacle>* obstacles = nullptr);
 
+  // Tick variant for a host that owns integration (a ROS node fed odometry,
+  // or hardware): inject the measured state, compute control, evaluate
+  // guards, but do not integrate. Returns the post-transition control u.
+  StepResult step_external(double dt, double x, double y, double psi,
+                           const std::vector<Obstacle>* obstacles = nullptr);
+
   Mode mode() const { return mode_; }
+  double control() const { return u_; }
   bool goal_reached(double radius) const;
 
  private:
+  // Evaluate the active mode's guard on the current state; fire at most one
+  // transition (with its reset) and return its name, or "" if none.
+  std::string evaluate_guards();
+
   Params p_;
   double tp_control_;
   double delta_;

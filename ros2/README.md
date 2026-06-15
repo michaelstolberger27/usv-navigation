@@ -12,7 +12,39 @@ Tested on **ROS 2 Jazzy**.
 | Package | Build type | Contents |
 |---|---|---|
 | `colav_interfaces` | `ament_cmake` | `Obstacle.msg`, `ObstacleArray.msg` |
-| `colav_ros` | `ament_python` | `colav_node` (controller), `fake_world` (stand-in plant + traffic), `demo.launch.py` |
+| `colav_ros` | `ament_python` | `colav_node` (Python controller), `fake_world` (stand-in plant + traffic), `demo.launch.py` |
+| `colav_cpp` | `ament_cmake` | `colav_core` — a C++ reimplementation of the controller verified bit-identical to the Python core — plus `colav_node_cpp`, the C++ rclcpp node that links it |
+
+## C++ controller (`colav_cpp`)
+
+`colav_core` is a from-scratch C++ port of the deterministic controller
+(`SyncColavRuntime`): the prescribed-time control law, the risk index / G22,
+the geometry guards G11/G23 (its own convex hull + separating-axis polygon
+intersection, replacing scipy + shapely), V1 selection, and the step/
+transition runtime. It depends on no ROS or simulator libraries.
+
+Python (`colav_automaton`) stays the source of truth; the C++ is verified
+against it. `scripts/gen_reference.py` emits reference vectors and five
+gtests cross-check each layer:
+
+| Layer | Result vs Python |
+|---|---|
+| Prescribed-time control + L1/L2 | `u` bit-exact 1000/1000 |
+| Risk index / G22 | `ri` ≤1 ULP; G22 decision identical 1000/1000 |
+| Geometry guards G11/G23 | decisions match 1500/1500 |
+| V1 selection | point match 1499/1500 (1 boundary case) |
+| **Full trajectory (842-step head-on)** | **bit-identical: 0 position/heading diff, modes & transitions 842/842** |
+
+`colav_node_cpp` is then pure ROS plumbing linking `colav_core` — a drop-in
+replacement for the Python node speaking the same topics:
+
+```bash
+cd ros2 && colcon build && source install/setup.bash
+export COLAV_REPO=$(cd .. && pwd)
+ros2 run colav_ros fake_world &        # Python world
+ros2 run colav_cpp colav_node_cpp      # C++ controller
+colcon test --packages-select colav_cpp   # run the cross-checks
+```
 
 ## Design
 
@@ -67,7 +99,7 @@ ros2 topic echo /cmd              # surge + yaw-rate command
 ## Status
 
 - [x] ROS 2 interface + controller node (Python `rclpy`), runnable end-to-end
+- [x] C++ `rclcpp` node (`colav_node_cpp`) linking `colav_core`, a verified
+      C++ reimplementation cross-checked bit-identical to the Python controller
+      (full-trajectory cross-check passes); runs end-to-end against `fake_world`
 - [ ] VRX/Gazebo world in place of `fake_world`
-- [ ] C++ `rclcpp` node (the targeted-C++ deliverable; decision pending —
-      embed the Python core via pybind11 vs. a verified C++ reimplementation
-      cross-checked against the Python reference)

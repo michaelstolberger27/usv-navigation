@@ -21,6 +21,19 @@ install(TARGETS colav_core EXPORT export_colav_core
   RUNTIME DESTINATION bin)
 ament_export_targets(export_colav_core HAS_LIBRARY_TARGET)
 
+# The rclcpp node: ROS plumbing linking the verified colav_core library.
+find_package(rclcpp REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(colav_interfaces REQUIRED)
+
+add_executable(colav_node_cpp src/colav_node.cpp)
+target_link_libraries(colav_node_cpp colav_core)
+ament_target_dependencies(colav_node_cpp
+  rclcpp nav_msgs geometry_msgs std_msgs colav_interfaces)
+install(TARGETS colav_node_cpp DESTINATION lib/${PROJECT_NAME})
+
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_control test/test_control.cpp)

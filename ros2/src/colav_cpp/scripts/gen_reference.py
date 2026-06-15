@@ -25,7 +25,7 @@ from colav_automaton.controllers.prescribed_time import (  # noqa: E402
     compute_prescribed_time_control,
 )
 from colav_automaton.guards.conditions import (  # noqa: E402
-    L1_check, L2_check, compute_risk_index, G22_check,
+    L1_check, L2_check, compute_risk_index, G22_check, G11_check, G23_check,
 )
 
 TEST_DIR = os.path.join(os.path.dirname(__file__), "..", "test")
@@ -94,11 +94,48 @@ def gen_risk(path):
                       + f",{ri!r},{int(g22)}\n")
 
 
+def gen_geom(path):
+    rng = random.Random(13572468)
+    cols = ["px", "py", "psi", "xw", "yw", "v", "tp", "Cs",
+            "ox", "oy", "ov", "opsi", "g11_py", "g23_py"]
+    with open(path, "w") as out:
+        out.write(",".join(cols) + "\n")
+        for _ in range(1500):
+            # CommonOcean-ish scale; obstacle scattered near the LOS so the
+            # guard booleans come out a balanced mix of True/False.
+            px = rng.uniform(-100.0, 100.0)
+            py = rng.uniform(-100.0, 100.0)
+            psi = rng.uniform(-math.pi, math.pi)
+            reach = rng.uniform(1500.0, 4000.0)
+            xw = px + reach * math.cos(psi)
+            yw = py + reach * math.sin(psi)
+            v = rng.uniform(4.0, 12.0)
+            tp = rng.uniform(1.0, 3.0)
+            Cs = rng.uniform(150.0, 400.0)
+            # place the obstacle somewhere between ego and waypoint, with
+            # lateral offset on the order of a few Cs (sometimes blocking).
+            frac = rng.uniform(0.1, 0.9)
+            lat = rng.uniform(-3.0, 3.0) * Cs
+            mx = px + frac * (xw - px)
+            my = py + frac * (yw - py)
+            ox = mx - lat * math.sin(psi)
+            oy = my + lat * math.cos(psi)
+            ov = rng.uniform(0.0, 10.0)
+            opsi = rng.uniform(-math.pi, math.pi)
+
+            obstacles = [(ox, oy, ov, opsi)]
+            g11 = G11_check(px, py, psi, xw, yw, v, tp, obstacles, Cs)
+            g23 = G23_check(px, py, psi, xw, yw, v, tp, obstacles, Cs)
+            out.write(_row([px, py, psi, xw, yw, v, tp, Cs, ox, oy, ov, opsi])
+                      + f",{int(g11)},{int(g23)}\n")
+
+
 def main():
     os.makedirs(TEST_DIR, exist_ok=True)
     gen_control(os.path.join(TEST_DIR, "reference_control.csv"))
     gen_risk(os.path.join(TEST_DIR, "reference_risk.csv"))
-    print("wrote reference_control.csv, reference_risk.csv to", TEST_DIR)
+    gen_geom(os.path.join(TEST_DIR, "reference_geom.csv"))
+    print("wrote reference_{control,risk,geom}.csv to", TEST_DIR)
 
 
 if __name__ == "__main__":

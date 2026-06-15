@@ -8,7 +8,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 add_library(colav_core src/control.cpp src/risk.cpp src/geometry.cpp
-  src/virtual_waypoint.cpp)
+  src/virtual_waypoint.cpp
+  src/sync_runtime.cpp)
 target_include_directories(colav_core PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>")
@@ -41,6 +42,11 @@ if(BUILD_TESTING)
   target_link_libraries(test_v1 colav_core)
   target_compile_definitions(test_v1 PRIVATE
     REFERENCE_V1="${CMAKE_CURRENT_SOURCE_DIR}/test/reference_v1.csv")
+
+  ament_add_gtest(test_trajectory test/test_trajectory.cpp)
+  target_link_libraries(test_trajectory colav_core)
+  target_compile_definitions(test_trajectory PRIVATE
+    REFERENCE_TRAJECTORY="${CMAKE_CURRENT_SOURCE_DIR}/test/reference_trajectory.csv")
 endif()
 
 ament_package()

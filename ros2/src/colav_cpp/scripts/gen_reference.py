@@ -179,13 +179,41 @@ def gen_v1(path):
                           + f",1,{v1[0]!r},{v1[1]!r}\n")
 
 
+# Scenario for the end-to-end trajectory cross-check (CommonOcean-scale
+# head-on). Kept in sync with test_trajectory.cpp.
+TRAJ = dict(goal=(5000.0, 0.0), ox0=2500.0, oy0=0.0, ov=5.0, opsi=math.pi,
+            Cs=300.0, v=6.0, tp=3.0, tp_control=60.0, K=0.35, K_off=0.25,
+            dt=1.0, n_steps=1200)
+
+
+def gen_trajectory(path):
+    from colav_automaton import SyncColavRuntime
+    t = TRAJ
+    rt = SyncColavRuntime(
+        waypoint=t["goal"], obstacles=[], initial_state=(0.0, 0.0, 0.0),
+        Cs=t["Cs"], v=t["v"], tp=t["tp"], K=t["K"], K_off=t["K_off"],
+        tp_control=t["tp_control"])
+    with open(path, "w") as out:
+        out.write("k,x,y,psi,mode,transition\n")
+        for k in range(t["n_steps"]):
+            sim_t = k * t["dt"]
+            ox = t["ox0"] + t["ov"] * math.cos(t["opsi"]) * sim_t
+            oy = t["oy0"] + t["ov"] * math.sin(t["opsi"]) * sim_t
+            r = rt.step(t["dt"], obstacles=[(ox, oy, t["ov"], t["opsi"])])
+            out.write(f"{k},{r.state[0]!r},{r.state[1]!r},{r.state[2]!r},"
+                      f"{r.mode},{r.transition or ''}\n")
+            if rt.goal_reached():
+                break
+
+
 def main():
     os.makedirs(TEST_DIR, exist_ok=True)
     gen_control(os.path.join(TEST_DIR, "reference_control.csv"))
     gen_risk(os.path.join(TEST_DIR, "reference_risk.csv"))
     gen_geom(os.path.join(TEST_DIR, "reference_geom.csv"))
     gen_v1(os.path.join(TEST_DIR, "reference_v1.csv"))
-    print("wrote reference_{control,risk,geom,v1}.csv to", TEST_DIR)
+    gen_trajectory(os.path.join(TEST_DIR, "reference_trajectory.csv"))
+    print("wrote reference_{control,risk,geom,v1,trajectory}.csv to", TEST_DIR)
 
 
 if __name__ == "__main__":

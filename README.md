@@ -23,6 +23,7 @@ A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface
   - [Testing with CommonOcean Simulator](#testing-with-commonocean-simulator)
   - [Batch Evaluation](#batch-evaluation)
   - [Visualization](#visualization)
+- [ROS 2 Node and Verified C++ Port](#ros-2-node-and-verified-c-port)
 - [Evaluation Results](#evaluation-results)
 - [Running the Tests](#running-the-tests)
 - [Project Structure](#project-structure)
@@ -285,6 +286,23 @@ The simulation generates trajectory plots and animations showing:
 - **Heading arrows** on the ego vessel
 - **Current state indicator** (S1/S2/S3) with time readout
 
+## ROS 2 Node and Verified C++ Port
+
+The [`ros2/`](ros2/) colcon workspace deploys the same deterministic core as a
+time-triggered ROS 2 node (tested on ROS 2 Jazzy):
+
+- **`colav_ros`** — Python `rclpy` node stepping `SyncColavRuntime.step_external` on a
+  fixed-rate timer, plus a closed-loop `fake_world` plant/traffic node and a demo launch file.
+- **`colav_cpp`** — `colav_core`, a simulator- and ROS-free C++17 reimplementation of the
+  controller (prescribed-time law, risk index, geometry guards, V1 selection, runtime),
+  cross-checked against the Python core by five gtest suites: control law bit-exact
+  1000/1000, guard decisions identical 1500/1500, and a full 842-step head-on trajectory
+  **bit-identical** in positions, headings, modes, and transitions. A C++ `rclcpp` node
+  links it as a drop-in replacement for the Python node on the same topics.
+- **`colav_interfaces`** — the `Obstacle`/`ObstacleArray` messages both nodes speak.
+
+Build, run, and verification details: [`ros2/README.md`](ros2/README.md).
+
 ## Evaluation Results
 
 Evaluated on the CommonOcean **HandcraftedTwoVesselEncounters** dataset (2000 two-vessel
@@ -337,16 +355,20 @@ flags the moment a fix lands:
 
 ## Running the Tests
 
-The core automaton has a pytest suite covering the guard conditions (paper eq 13-27),
-the risk-index hysteresis, V1 selection, and the unsafe-set geometry wrappers:
+The pytest suite covers the guard conditions (paper eq 13-27), the risk-index
+hysteresis, V1 selection, the unsafe-set geometry wrappers, the AIS tracking layer,
+and an end-to-end behavioural regression suite: canonical COLREGs encounters
+(head-on, crossing give-way, overtaking) run on the deterministic runtime with
+transition sequences, starboard manoeuvres, and minimum separation pinned — plus
+the [Known limitations](#known-limitations) reproduced as strict xfail tests:
 
 ```bash
 pip install -e .[dev]
 pytest
 ```
 
-No simulator or Docker is required — the suite exercises only `src/colav_automaton/`.
-CI runs it on every push (see `.github/workflows/ci.yml`).
+No simulator or Docker is required. CI runs ruff and the suite on Python 3.10 and
+3.12 on every push (see `.github/workflows/ci.yml`).
 
 ## Project Structure
 
@@ -391,10 +413,15 @@ usv-navigation/
 │   ├── runner.py                      # Drives the automaton through AIS traffic
 │   ├── sample_data/                   # Bundled synthetic recording (aisstream.io format)
 │   └── scripts/                       # run_replay.py, record_ais.py
+├── ros2/                              # ROS 2 colcon workspace (see ros2/README.md)
+│   └── src/
+│       ├── colav_interfaces/          # Obstacle/ObstacleArray message definitions
+│       ├── colav_ros/                 # Python rclpy node, fake_world, demo launch
+│       └── colav_cpp/                 # colav_core C++ port + rclcpp node + gtest cross-checks
 ├── examples/
 │   └── realtime_simulation.py         # Standalone animated simulation (no Docker required)
-├── tests/                             # Pytest suite for the core automaton (no simulator needed)
-├── .github/workflows/ci.yml           # CI: install + pytest on every push
+├── tests/                             # Pytest suite: unit + behavioural regression (no simulator needed)
+├── .github/workflows/ci.yml           # CI: ruff + pytest (Python 3.10/3.12) on every push
 ├── docker/
 │   ├── Dockerfile                     # Full simulation stack (commonocean-sim + Gurobi + VNC)
 │   ├── docker-compose.yml             # Service definition with volume mounts

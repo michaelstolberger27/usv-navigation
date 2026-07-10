@@ -1,0 +1,57 @@
+name: ROS 2
+
+on:
+  push:
+    branches: [main, Updates]
+  pull_request:
+
+jobs:
+  colcon:
+    runs-on: ubuntu-latest
+    container: ros:jazzy
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install core Python dependencies
+        # colav_node imports the simulator-independent core
+        # (src/colav_automaton), so its dependencies must exist in the
+        # container Python. hybrid-automaton is not on PyPI.
+        # --no-deps: both upstream packages over-declare runtime
+        # dependencies (build tools, test frameworks, plotting) whose
+        # resolution would replace debian-owned packages the ROS-built
+        # pytest plugins depend on. What they actually import is numpy,
+        # scipy, and shapely — installed as fresh copies under
+        # /usr/local (--ignore-installed: pip cannot uninstall the
+        # image's debian-owned numpy). numpy<1.28 per hybrid-automaton.
+        run: |
+          apt-get update
+          apt-get install -y python3-pip git
+          pip3 install --break-system-packages --no-deps \
+            "hybrid-automaton @ git+https://github.com/rymc-dev/hybrid-automaton.git" \
+            colav-unsafe-set
+          pip3 install --break-system-packages --ignore-installed \
+            scipy shapely "numpy<1.28"
+
+      - name: Resolve ROS dependencies
+        # ros_gz_bridge is only used by the Gazebo demo launch, not by
+        # the build or the tests — skipped to keep the container light.
+        run: |
+          rosdep update
+          rosdep install --from-paths ros2/src -y -i --skip-keys ros_gz_bridge
+
+      - name: Build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros2
+          colcon build --event-handlers console_cohesion+
+
+      - name: Test (C++ cross-checks + launch smoke test)
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros2
+          source install/setup.bash
+          colcon test --event-handlers console_cohesion+
+          colcon test-result --verbose

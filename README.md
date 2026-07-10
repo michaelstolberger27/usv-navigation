@@ -1,6 +1,7 @@
 # USV Navigation - Collision Avoidance Automaton
 
 [![CI](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ci.yml)
+[![ROS 2](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ros2.yml/badge.svg)](https://github.com/michaelstolberger27/usv-navigation/actions/workflows/ros2.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -301,6 +302,20 @@ time-triggered ROS 2 node (tested on ROS 2 Jazzy):
   links it as a drop-in replacement for the Python node on the same topics.
 - **`colav_interfaces`** — the `Obstacle`/`ObstacleArray` messages both nodes speak.
 
+The controller depends only on the topic contract, demonstrated by the bundled
+**headless Gazebo world**: `gazebo_demo.launch.py` swaps `fake_world` for a Gazebo
+Harmonic server through `ros_gz_bridge` with the controller node unchanged — pure
+topic remapping plus `use_sim_time`:
+
+<p align="center">
+  <img src="assets/gazebo_demo_head_on.gif" alt="Gazebo head-on demo" width="75%"/>
+</p>
+
+A `launch_testing` smoke test brings up the node pair and asserts the full
+avoid/hold/resume cycle over the wire; a dedicated CI workflow builds the
+workspace and runs all of its tests (the five C++ cross-check suites plus the
+smoke test) in a `ros:jazzy` container on every push.
+
 Build, run, and verification details: [`ros2/README.md`](ros2/README.md).
 
 ## Evaluation Results
@@ -416,7 +431,7 @@ usv-navigation/
 ├── ros2/                              # ROS 2 colcon workspace (see ros2/README.md)
 │   └── src/
 │       ├── colav_interfaces/          # Obstacle/ObstacleArray message definitions
-│       ├── colav_ros/                 # Python rclpy node, fake_world, demo launch
+│       ├── colav_ros/                 # Python rclpy node, fake_world + Gazebo demo, launch smoke test
 │       └── colav_cpp/                 # colav_core C++ port + rclcpp node + gtest cross-checks
 ├── examples/
 │   └── realtime_simulation.py         # Standalone animated simulation (no Docker required)

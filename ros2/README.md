@@ -1,9 +1,9 @@
 # ROS 2 integration (`colav_ros`)
 
-A ROS 2 node that wraps the COLAV hybrid automaton, plus a closed-loop
-fake-world node so the full graph runs without a heavyweight simulator.
-The verified C++ port (`colav_cpp`) speaks the same topics; a VRX/Gazebo
-world is the planned next step.
+A ROS 2 node that wraps the COLAV hybrid automaton, plus two worlds to
+run it against: a closed-loop fake-world node (no simulator required)
+and a headless Gazebo world driven through `ros_gz_bridge`. The verified
+C++ port (`colav_cpp`) speaks the same topics as the Python node.
 
 Tested on **ROS 2 Jazzy**.
 
@@ -12,7 +12,7 @@ Tested on **ROS 2 Jazzy**.
 | Package | Build type | Contents |
 |---|---|---|
 | `colav_interfaces` | `ament_cmake` | `Obstacle.msg`, `ObstacleArray.msg` |
-| `colav_ros` | `ament_python` | `colav_node` (Python controller), `fake_world` (stand-in plant + traffic), `demo.launch.py` |
+| `colav_ros` | `ament_python` | `colav_node` (Python controller), `fake_world` (stand-in plant + traffic), `gz_obstacles` (Gazebo obstacle adapter), `demo.launch.py`, `gazebo_demo.launch.py`, `worlds/colav_demo.sdf`, a `launch_testing` smoke test |
 | `colav_cpp` | `ament_cmake` | `colav_core` — a C++ reimplementation of the controller verified bit-identical to the Python core — plus `colav_node_cpp`, the C++ rclcpp node that links it |
 
 ## C++ controller (`colav_cpp`)
@@ -43,7 +43,7 @@ cd ros2 && colcon build && source install/setup.bash
 export COLAV_REPO=$(cd .. && pwd)
 ros2 run colav_ros fake_world &        # Python world
 ros2 run colav_cpp colav_node_cpp      # C++ controller
-colcon test --packages-select colav_cpp   # run the cross-checks
+colcon test   # C++ cross-checks + launch_testing smoke test of the Python pair
 ```
 
 ## Design
@@ -56,8 +56,8 @@ standard time-triggered pattern:
   once per tick (the same deterministic core the CommonOcean adapter and the
   AIS replay runner drive);
 - the node publishes a `Twist` command and never integrates the vessel — the
-  world on the other side (fake_world here, VRX/Gazebo or real hardware later)
-  owns integration and feeds pose back.
+  world on the other side (fake_world or the bundled Gazebo world here, real
+  hardware later) owns integration and feeds pose back.
 
 ```
             ego_odom (nav_msgs/Odometry)
@@ -68,7 +68,9 @@ standard time-triggered pattern:
 ```
 
 Because the controller depends only on the topic contract, swapping
-`fake_world` for a VRX bridge is a launch-file change, not a code change.
+`fake_world` for Gazebo is a launch-file change, not a code change —
+`gazebo_demo.launch.py` is exactly that: the same controller binary
+remapped onto bridged Gazebo topics.
 
 ## Build & run
 
@@ -96,10 +98,40 @@ ros2 topic echo /colav_state      # S1/S2/S3 label each tick
 ros2 topic echo /cmd              # surge + yaw-rate command
 ```
 
+## Gazebo demo
+
+The same head-on encounter with Gazebo (Harmonic) as the plant instead of
+`fake_world` — the controller node is untouched; only the launch wiring
+differs:
+
+```bash
+sudo apt install ros-jazzy-ros-gz      # once
+ros2 launch colav_ros gazebo_demo.launch.py
+```
+
+<p align="center">
+  <img src="../assets/gazebo_demo_head_on.gif" alt="Gazebo head-on demo" width="80%"/>
+</p>
+
+- [`worlds/colav_demo.sdf`](src/colav_ros/worlds/colav_demo.sdf): two kinematic
+  vessels (`VelocityControl` + `OdometryPublisher` plugins), gravity off, no
+  sensors or ocean shader — the server runs headless under software rendering.
+- `ros_gz_bridge` carries `/clock`, both odometries (Gazebo → ROS) and both
+  velocity commands (ROS → Gazebo); the controller's ego I/O is pure topic
+  remapping, and `gz_obstacles` converts the obstacle vessel's odometry into
+  the `ObstacleArray` the controller consumes.
+- With `use_sim_time` the control timer ticks on `/clock`, so Gazebo owns the
+  clock. The run completes the identical avoid/hold/resume cycle, reaching the
+  goal at t = 8.45 s sim vs 8.40 s under fake_world (10 ms physics vs the
+  fake world's 50 ms Euler steps).
+
 ## Status
 
 - [x] ROS 2 interface + controller node (Python `rclpy`), runnable end-to-end
 - [x] C++ `rclcpp` node (`colav_node_cpp`) linking `colav_core`, a verified
       C++ reimplementation cross-checked bit-identical to the Python controller
       (full-trajectory cross-check passes); runs end-to-end against `fake_world`
-- [ ] VRX/Gazebo world in place of `fake_world`
+- [x] Gazebo world in place of `fake_world` (headless Harmonic server via
+      `ros_gz_bridge`, sim-time control loop, controller unchanged)
+- [ ] Hardware-in-the-loop: the C++ node on an embedded target driving the
+      same topic contract

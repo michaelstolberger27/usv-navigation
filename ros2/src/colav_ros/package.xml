@@ -13,6 +13,9 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>colav_interfaces</exec_depend>
+  <!-- Gazebo demo only (gazebo_demo.launch.py); the fake_world demo and
+       the tests run without it -->
+  <exec_depend>ros_gz_bridge</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
   <test_depend>launch</test_depend>

@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+<!--
+  Minimal Gazebo Harmonic world for the COLAV demo. No ocean shader, no
+  sensors, gravity off: a planar surface-vehicle demo that runs headless
+  under software rendering (the maritime-fidelity VRX environment is
+  GPU-gated and belongs on the Jetson). Both vessels take a Twist on
+  their cmd_vel (linear.x = surge, angular.z = yaw rate — exactly what
+  colav_node publishes) and publish odometry. The obstacle vessel starts
+  at (70, 0) heading west at 2 m/s: the same head-on encounter as
+  fake_world and example scenario 3, so all three worlds demonstrate the
+  identical avoid/hold/resume cycle.
+-->
+<sdf version="1.10">
+  <world name="colav_demo">
+    <physics name="fast" type="ignored">
+      <max_step_size>0.01</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <gravity>0 0 0</gravity>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+
+    <light type="directional" name="sun">
+      <direction>-0.5 0.1 -0.9</direction>
+      <diffuse>1 1 1 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+    </light>
+
+    <model name="water" >
+      <static>true</static>
+      <link name="surface">
+        <visual name="v">
+          <geometry><plane><normal>0 0 1</normal><size>2000 2000</size></plane></geometry>
+          <material><ambient>0.0 0.3 0.5 1</ambient><diffuse>0.0 0.4 0.6 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="ego_vessel">
+      <pose>0 0 0 0 0 0</pose>
+      <link name="base">
+        <inertial>
+          <mass>50.0</mass>
+          <inertia><ixx>40</ixx><iyy>120</iyy><izz>140</izz>
+                   <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="hull">
+          <geometry><box><size>4 2 1</size></box></geometry>
+          <material><ambient>0.1 0.1 0.7 1</ambient><diffuse>0.2 0.2 0.9 1</diffuse></material>
+        </visual>
+        <collision name="c">
+          <geometry><box><size>4 2 1</size></box></geometry>
+        </collision>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system"
+              name="gz::sim::systems::VelocityControl">
+        <topic>/model/ego_vessel/cmd_vel</topic>
+      </plugin>
+      <plugin filename="gz-sim-odometry-publisher-system"
+              name="gz::sim::systems::OdometryPublisher">
+        <dimensions>2</dimensions>
+        <odom_frame>map</odom_frame>
+        <robot_base_frame>ego_vessel</robot_base_frame>
+        <odom_topic>/model/ego_vessel/odometry</odom_topic>
+        <odom_publish_frequency>50</odom_publish_frequency>
+      </plugin>
+    </model>
+
+    <model name="obstacle">
+      <pose>70 0 0 0 0 3.14159265</pose>
+      <link name="base">
+        <inertial>
+          <mass>50.0</mass>
+          <inertia><ixx>40</ixx><iyy>120</iyy><izz>140</izz>
+                   <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="hull">
+          <geometry><box><size>4 2 1</size></box></geometry>
+          <material><ambient>0.7 0.1 0.1 1</ambient><diffuse>0.9 0.2 0.2 1</diffuse></material>
+        </visual>
+        <collision name="c">
+          <geometry><box><size>4 2 1</size></box></geometry>
+        </collision>
+      </link>
+      <plugin filename="gz-sim-velocity-control-system"
+              name="gz::sim::systems::VelocityControl">
+        <topic>/model/obstacle/cmd_vel</topic>
+      </plugin>
+      <plugin filename="gz-sim-odometry-publisher-system"
+              name="gz::sim::systems::OdometryPublisher">
+        <dimensions>2</dimensions>
+        <odom_frame>map</odom_frame>
+        <robot_base_frame>obstacle</robot_base_frame>
+        <odom_topic>/model/obstacle/odometry</odom_topic>
+        <odom_publish_frequency>50</odom_publish_frequency>
+      </plugin>
+    </model>
+  </world>
+</sdf>

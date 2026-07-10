@@ -25,12 +25,15 @@ import math
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 
 from colav_interfaces.msg import ObstacleArray
+
+from colav_ros.util import yaw_from_quaternion
 
 # Import the simulator-independent core. ROS runs the system Python; if
 # COLAV_REPO is set, put this repo's src/ first so it wins over any other
@@ -41,13 +44,6 @@ _repo = _os.environ.get("COLAV_REPO")
 if _repo:
     _sys.path.insert(0, _os.path.join(_repo, "src"))
 from colav_automaton import SyncColavRuntime  # noqa: E402
-
-
-def _yaw_from_quaternion(q) -> float:
-    """Extract the planar heading (yaw) from a geometry_msgs Quaternion."""
-    siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-    cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-    return math.atan2(siny_cosp, cosy_cosp)
 
 
 class ColavNode(Node):
@@ -89,11 +85,16 @@ class ColavNode(Node):
         self._arrived = False
         self._last_mode = None
 
-        self.create_subscription(Odometry, 'ego_odom', self._on_odom, 10)
+        # Odometry is a high-rate sensor stream: best-effort QoS (drop,
+        # don't queue) — the tick only ever reads the latest sample.
+        self.create_subscription(Odometry, 'ego_odom', self._on_odom,
+                                 qos_profile_sensor_data)
         self.create_subscription(ObstacleArray, 'obstacles', self._on_obstacles, 10)
         self._cmd_pub = self.create_publisher(Twist, 'cmd', 10)
         self._state_pub = self.create_publisher(String, 'colav_state', 10)
 
+        # Node-clock timer: with use_sim_time this ticks on /clock (e.g.
+        # under Gazebo), otherwise on wall time.
         self.create_timer(self._dt, self._tick)
         self.get_logger().info(
             f"colav_node up: goal={self._goal}, dt={self._dt}s, "
@@ -103,7 +104,7 @@ class ColavNode(Node):
 
     def _on_odom(self, msg: Odometry):
         pos = msg.pose.pose.position
-        psi = _yaw_from_quaternion(msg.pose.pose.orientation)
+        psi = yaw_from_quaternion(msg.pose.pose.orientation)
         self._ego = (pos.x, pos.y, psi)
 
     def _on_obstacles(self, msg: ObstacleArray):

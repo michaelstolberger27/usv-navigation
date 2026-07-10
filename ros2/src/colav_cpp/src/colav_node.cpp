@@ -52,8 +52,10 @@ class ColavNode : public rclcpp::Node {
     a_ = p.a;
     v_ = p.v;
 
+    // Odometry is a high-rate sensor stream: best-effort QoS (drop,
+    // don't queue) — the tick only ever reads the latest sample.
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "ego_odom", 10,
+        "ego_odom", rclcpp::SensorDataQoS(),
         [this](const nav_msgs::msg::Odometry::SharedPtr m) { on_odom(m); });
     obs_sub_ = create_subscription<colav_interfaces::msg::ObstacleArray>(
         "obstacles", 10,
@@ -63,8 +65,11 @@ class ColavNode : public rclcpp::Node {
     cmd_pub_ = create_publisher<geometry_msgs::msg::Twist>("cmd", 10);
     state_pub_ = create_publisher<std_msgs::msg::String>("colav_state", 10);
 
-    timer_ = create_wall_timer(
-        std::chrono::duration<double>(dt_), [this]() { tick(); });
+    // Node-clock timer: with use_sim_time this ticks on /clock (e.g.
+    // under Gazebo), otherwise on wall time.
+    timer_ = rclcpp::create_timer(
+        this, get_clock(), rclcpp::Duration::from_seconds(dt_),
+        [this]() { tick(); });
     RCLCPP_INFO(get_logger(), "colav_node (C++) up: goal=(%.1f,%.1f) dt=%.3fs",
                 goal_.x, goal_.y, dt_);
   }

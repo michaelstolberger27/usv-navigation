@@ -5,7 +5,6 @@ Real-time COLAV Simulation Visualization
 Animates the simulation showing:
 - Agent vessel motion with heading indicator
 - Dynamic obstacle motion
-- LOS cone from vessel to waypoint
 - Unsafe regions around obstacles
 - Virtual waypoint V1 when in avoidance mode
 - State indicator (S1/S2/S3)
@@ -116,13 +115,11 @@ class RealtimeSimulation:
         self,
         scenario_id: int = 1,
         speed_multiplier: float = 1.0,
-        show_los_cone: bool = True,
         show_unsafe_sets: bool = True,
     ):
         self.scenario_id = scenario_id
         self.scenario = SCENARIOS[scenario_id]
         self.speed_multiplier = speed_multiplier
-        self.show_los_cone = show_los_cone
         self.show_unsafe_sets = show_unsafe_sets
 
         # Simulation parameters
@@ -150,7 +147,6 @@ class RealtimeSimulation:
         self.vessel_marker = None
         self.heading_arrow = None
         self.trajectory_line = None
-        self.los_cone_patch = None
         self.obstacle_markers = []
         self.unsafe_set_patches = []
         self.state_text = None
@@ -240,9 +236,6 @@ class RealtimeSimulation:
                            fill=True, zorder=5)
             self.ax.add_patch(circle)
 
-        # Initialize LOS cone patch
-        self.los_cone_patch = None
-
         # State and time text
         self.state_text = self.ax.text(0.02, 0.98, '', transform=self.ax.transAxes,
                                         fontsize=14, verticalalignment='top',
@@ -262,11 +255,6 @@ class RealtimeSimulation:
                    markersize=15, label='Waypoint'),
         ]
         self.ax.legend(handles=legend_elements, loc='upper right')
-
-    def update_los_cone(self, pos_x, pos_y, psi):
-        """Update the LOS cone visualization."""
-        # TODO: LOS cone temporarily disabled - visualization doesn't match guard logic
-        return
 
     def update_unsafe_sets(self, pos_x, pos_y, psi, obstacles):
         """Update unsafe set visualizations."""
@@ -397,9 +385,6 @@ class RealtimeSimulation:
             if i < len(self.obstacle_markers):
                 self.obstacle_markers[i].set_data([ox], [oy])
 
-        # Update LOS cone
-        self.update_los_cone(x, y, psi)
-
         # Update unsafe sets
         self.update_unsafe_sets(x, y, psi, obstacles)
 
@@ -493,8 +478,6 @@ def main():
     parser.add_argument('--scenario', '-s', type=int, default=1,
                         choices=list(range(1, 11)),
                         help='Scenario number (1-6)')
-    parser.add_argument('--no-los', action='store_true',
-                        help='Hide LOS cone')
     parser.add_argument('--no-unsafe', action='store_true',
                         help='Hide unsafe sets')
     parser.add_argument('--all', action='store_true',
@@ -508,7 +491,6 @@ def main():
         for scenario_id in SCENARIOS:
             sim = RealtimeSimulation(
                 scenario_id=scenario_id,
-                show_los_cone=not args.no_los,
                 show_unsafe_sets=not args.no_unsafe,
             )
             sim.save_animation()
@@ -517,7 +499,6 @@ def main():
         # Save single scenario (default behavior)
         sim = RealtimeSimulation(
             scenario_id=args.scenario,
-            show_los_cone=not args.no_los,
             show_unsafe_sets=not args.no_unsafe,
         )
         sim.save_animation()

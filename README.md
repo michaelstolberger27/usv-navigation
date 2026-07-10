@@ -282,7 +282,7 @@ The simulation generates trajectory plots and animations showing:
 - **Obstacle positions** with safety radius circles
 - **Unsafe set regions** (convex hulls)
 - **Virtual waypoint V1** (when in avoidance mode)
-- **LOS cone** and heading arrows
+- **Heading arrows** on the ego vessel
 - **Current state indicator** (S1/S2/S3) with time readout
 
 ## Evaluation Results

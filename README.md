@@ -303,12 +303,37 @@ current obstacle positions) → 1 / 5 (V1 from a horizon-capped swept region) �
 the `K_off` resume hysteresis, see [Guard Conditions](#guard-conditions)) → **0 / 1** (the
 [deterministic runtime](#deterministic-synchronous-usage), which removed the last collision
 and made every result reproducible). The one remaining failure is a no-collision miss
-(avoided safely at 532 m CPA but did not reach the goal in the step budget), tracked in
-`HANDOFF.md`. A 25-scenario MarineCadastre (AIS-derived) set is also evaluated via
-`batch_evaluate_marine_cadastre.py`.
+(avoided safely at 532 m CPA but did not reach the goal in the step budget), see
+[Known limitations](#known-limitations). A 25-scenario MarineCadastre (AIS-derived) set is
+also evaluated via `batch_evaluate_marine_cadastre.py`.
 
 These figures are from the tick-synchronous runtime and are bit-identical across reruns; the
 earlier wall-clock async runtime produced the 1-collision row above and varied run to run.
+
+## Known limitations
+
+Documented deliberately — the first two were discovered by replaying a 30-minute recording
+of real Singapore Strait AIS traffic (393 vessels) against the automaton, and both are
+reproduced deterministically as `strict` xfail tests in
+[`tests/test_behaviour_regression.py`](tests/test_behaviour_regression.py), so the suite
+flags the moment a fix lands:
+
+- **Dense traffic degenerates the unified unsafe region.** Guard geometry builds *one*
+  convex hull over all obstacles. With many scattered vessels (a busy strait), that hull
+  covers the whole area: G11 reports a blocked path even when the corridor between traffic
+  lanes is genuinely clear, and the resume check ¬G23 can never pass. Fix direction:
+  per-obstacle regions (a union, not a hull) or obstacle clustering for guard checks.
+- **The resume hysteresis is global.** Leaving S3 requires the *maximum* risk index over
+  all obstacles to drop below `K_off`; in steady traffic someone is always approaching, so
+  the vessel can stay frozen on its held heading long after the threat that triggered
+  avoidance has passed. Fix direction: per-threat hysteresis (resume when the risk from the
+  obstacle(s) that triggered avoidance subsides).
+- **Overtaking clearance sits close to `Cs`.** At the evaluation scale the overtaking pass
+  clears the slow vessel at roughly the safety radius (~300-310 m across sampled
+  geometries) rather than with a wide margin, because the vessel cuts back toward its track
+  after passing the virtual waypoint.
+- **One evaluation miss remains** (`T-1964`): avoided safely (CPA 532 m) but did not reach
+  the goal within the step budget.
 
 ## Running the Tests
 

@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name + '/launch', ['launch/demo.launch.py']),
     ],
     install_requires=['setuptools'],
+    extras_require={'test': ['pytest']},
     zip_safe=True,
     maintainer='Michael Stolberger',
     maintainer_email='stolbergermichael5@gmail.com',

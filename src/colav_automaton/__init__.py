@@ -1,3 +1,4 @@
+from . import _compat  # noqa: F401  (normalizes the dependency's CPA convention)
 from .automaton import ColavAutomaton
 from .controllers import HeadingControlProvider
 from .sync_runtime import SyncColavRuntime, StepResult

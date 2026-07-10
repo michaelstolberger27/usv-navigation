@@ -1,12 +1,11 @@
 """
 Collision detection and path planning condition checks.
 
-Implements guard condition functions (G11, G12, G22, L1, L2, G23) that determine
+Implements guard condition functions (G11, G22, L1, L2, G23) that determine
 when collision avoidance is needed and when avoidance maneuvers complete.
 
 Follows the paper's switching strategy (Section 4.1.1, 4.2, Figure 8):
 - G11: LOS to waypoint intersects unsafe set (eq 13)
-- G12: Distance to obstacle <= dsafe (eq 14)
 - G22: Risk index RI(DCPA, TCPA, d_s) >= K (eq 19-21)
 - L1:  Distance to V1 > delta (eq 15)
 - L2:  V1 is ahead of ship (eq 16)
@@ -127,57 +126,6 @@ def G11_check(
     return unsafe_polygon.intersects(los_cone)
 
 
-def G12_check(
-    pos_x: float,
-    pos_y: float,
-    psi: float,
-    obstacles_list: List[Tuple[float, float, float, float]],
-    ship_v: float,
-    Cs: float,
-    dsafe: float,
-    tp: float = 3.0,
-) -> bool:
-    """
-    G12: Distance to obstacle <= dsafe (paper eq 14, extended for dynamic obstacles).
-
-    For static obstacles: d_safe = Cs + v * tp (paper eq 14).
-    For dynamic obstacles: the paper's Theorem 3 proof uses a larger
-    scenario-dependent dsafe.  We approximate this by adding the obstacle's
-    closing velocity component during tp, ensuring the ship has enough room
-    to complete the prescribed-time heading change before reaching Cs.
-
-    Args:
-        pos_x, pos_y: Current ship position
-        psi: Current ship heading (rad)
-        obstacles_list: List of (ox, oy, ov, o_psi) tuples
-        ship_v: Ship velocity (m/s)
-        Cs: Safety radius (m)
-        dsafe: Base safe distance = Cs + v * tp
-        tp: Prescribed time (s)
-
-    Returns:
-        bool: True if any obstacle is within its effective dsafe
-    """
-    for ox, oy, ov, o_psi in obstacles_list:
-        dx, dy = ox - pos_x, oy - pos_y
-        dist = np.hypot(dx, dy)
-
-        # Compute closing speed: component of obstacle velocity toward ship
-        if dist > 1e-6:
-            # Unit vector from obstacle to ship
-            ux, uy = -dx / dist, -dy / dist
-            closing_speed = max(ov * (np.cos(o_psi) * ux + np.sin(o_psi) * uy), 0.0)
-        else:
-            closing_speed = ov
-
-        # Effective dsafe accounts for obstacle closing during tp
-        effective_dsafe = dsafe + closing_speed * tp
-
-        if dist <= effective_dsafe:
-            return True
-    return False
-
-
 def _F(z: float, beta1: float, beta2: float) -> float:
     """
     Piecewise risk function F(z) from paper eq 20.
@@ -287,8 +235,9 @@ def G22_check(
 
     RI(DCPA, TCPA, d_s) = 1/3 * (F(DCPA) + F(TCPA) + F(d_s)) >= K
 
-    This replaces G12 for dynamic obstacles, enabling earlier and smoother
-    avoidance (Rule 8).  See compute_risk_index for the RI computation.
+    This replaces the paper's plain distance trigger (G12, eq 14) for
+    dynamic obstacles, enabling earlier and smoother avoidance (Rule 8).
+    See compute_risk_index for the RI computation.
 
     Args:
         K: Risk threshold (paper uses 0.35); other args as compute_risk_index.

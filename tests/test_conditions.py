@@ -13,7 +13,6 @@ from colav_automaton.guards.conditions import (
     classify_encounter,
     compute_risk_index,
     G11_check,
-    G12_check,
     G22_check,
     G23_check,
     L1_check,
@@ -23,7 +22,6 @@ from colav_automaton.guards.conditions import (
 CS = 300.0
 V = 5.0
 TP = 3.0
-DSAFE = CS + V * TP
 
 
 # ---------------------------------------------------------------- _F (eq 20)
@@ -175,24 +173,6 @@ class TestG11:
     def test_static_obstacle_far_abeam_is_clear(self):
         obstacles = [(500.0, 5000.0, 0.0, 0.0)]
         assert G11_check(0, 0, 0.0, 2000.0, 0.0, V, TP, obstacles, CS) is False
-
-
-# -------------------------------------------------------------- G12 (eq 14)
-
-class TestG12:
-    def test_obstacle_within_dsafe(self):
-        obstacles = [(DSAFE - 50.0, 0.0, 0.0, 0.0)]
-        assert G12_check(0, 0, 0.0, obstacles, V, CS, DSAFE, TP) is True
-
-    def test_stationary_obstacle_beyond_dsafe(self):
-        obstacles = [(DSAFE + 50.0, 0.0, 0.0, 0.0)]
-        assert G12_check(0, 0, 0.0, obstacles, V, CS, DSAFE, TP) is False
-
-    def test_closing_obstacle_extends_effective_dsafe(self):
-        # Same range as above but closing fast: effective dsafe grows by
-        # closing_speed * tp = 60 m, so the 50 m margin is inside it.
-        obstacles = [(DSAFE + 50.0, 0.0, 20.0, np.pi)]
-        assert G12_check(0, 0, 0.0, obstacles, V, CS, DSAFE, TP) is True
 
 
 # -------------------------------------------------------------- G23 (eq 27)

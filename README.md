@@ -354,17 +354,17 @@ CI runs it on every push (see `.github/workflows/ci.yml`).
 usv-navigation/
 ├── src/
 │   └── colav_automaton/               # Core automaton — no CommonOcean dependencies
-│       ├── __init__.py                # Package exports (ColavAutomaton, HeadingControlProvider)
+│       ├── __init__.py                # Package exports (ColavAutomaton, SyncColavRuntime, ...)
 │       ├── automaton.py               # Automaton factory
 │       ├── controllers/
 │       │   ├── prescribed_time.py     # Prescribed-time heading controller & HeadingControlProvider
 │       │   ├── virtual_waypoint.py    # Virtual waypoint V1 computation (COLREGs-compliant)
-│       │   └── unsafe_sets.py         # Unsafe set geometry, LOS cone, collision threat detection
+│       │   └── unsafe_sets.py         # Unsafe set geometry and LOS cone construction
 │       ├── dynamics/
 │       │   └── dynamics.py            # State flow dynamics (S1/S2 navigation, S3 constant)
 │       ├── guards/
 │       │   ├── guards.py              # Transition guards (G11∧G22, ¬L1∨¬L2, ¬G23 + K_off hysteresis)
-│       │   └── conditions.py          # Guard conditions (G11, G12, G22, G23, L1, L2, risk index)
+│       │   └── conditions.py          # Guard conditions (G11, G22, G23, L1, L2, risk index)
 │       ├── resets/
 │       │   └── resets.py              # State reset handlers (V1 computation & waypoint stack)
 │       └── invariants/
@@ -478,7 +478,6 @@ Transition logic in [`guards.py`](src/colav_automaton/guards/guards.py) and [`co
 
 - **`get_unsafe_set_vertices()`**: Convex hull vertices of unsafe regions (with swept region support for moving obstacles)
 - **`create_los_cone()`**: Convex cone from vessel toward waypoint for G11 intersection test
-- **`check_collision_threat()`**: DCPA/TCPA-based threat assessment
 
 ## Algorithm References
 

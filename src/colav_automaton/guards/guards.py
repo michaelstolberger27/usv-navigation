@@ -1,36 +1,9 @@
 from hybrid_automaton.definition import guard
 from hybrid_automaton import RuntimeContext
 from colav_automaton.guards.conditions import (
-    G11_check, G12_check, G22_check, G23_check, L1_check, L2_check,
+    G11_check, G22_check, G23_check, L1_check, L2_check,
     compute_risk_index,
 )
-
-
-@guard
-def G11_and_G12_guard(ctx: RuntimeContext) -> bool:
-    """
-    Guard for S1 -> S2 transition: Enter collision avoidance.
-
-    Activates when obstacle is in path (G11) AND close enough (G12).
-    """
-    state = ctx.continuous_state.latest()
-    cfg = ctx.configuration
-
-    target_x, target_y = cfg['waypoints'][-1]
-
-    G11 = G11_check(
-        state[0], state[1], state[2],
-        target_x, target_y,
-        cfg['v'], cfg['tp'],
-        cfg['obstacles'], cfg['Cs']
-    )
-
-    G12 = G12_check(
-        state[0], state[1], state[2], cfg['obstacles'],
-        cfg['v'], cfg['Cs'], cfg['dsafe'], cfg['tp']
-    )
-
-    return G11 and G12
 
 
 @guard
@@ -94,62 +67,6 @@ def L1_bar_or_L2_bar_guard(ctx: RuntimeContext) -> bool:
     L2 = L2_check(state[0], state[1], state[2], v1_x, v1_y)
 
     return (not L1) or (not L2)
-
-
-@guard
-def not_G11_guard(ctx: RuntimeContext) -> bool:
-    """
-    Guard for S3 -> S1 transition: Resume waypoint reaching.
-
-    Paper Figure 8: activates when Ḡ11 (LOS to waypoint is clear).
-    """
-    state = ctx.continuous_state.latest()
-    cfg = ctx.configuration
-
-    target_x, target_y = cfg['waypoints'][-1]
-
-    G11 = G11_check(
-        state[0], state[1], state[2],
-        target_x, target_y,
-        cfg['v'], cfg['tp'],
-        cfg['obstacles'], cfg['Cs']
-    )
-
-    return not G11
-
-
-@guard
-def not_G11_and_not_G12_guard(ctx: RuntimeContext) -> bool:
-    """
-    Guard for S3 -> S1 transition: Resume waypoint reaching.
-
-    Requires BOTH:
-    - ¬G11: LOS to waypoint is clear (no obstacle in path)
-    - ¬G12: No obstacle within dsafe
-
-    This prevents premature resumption while the obstacle is still nearby.
-    """
-    state = ctx.continuous_state.latest()
-    cfg = ctx.configuration
-
-    target_x, target_y = cfg['waypoints'][-1]
-
-    G11 = G11_check(
-        state[0], state[1], state[2],
-        target_x, target_y,
-        cfg['v'], cfg['tp'],
-        cfg['obstacles'], cfg['Cs']
-    )
-
-    if G11:
-        return False  # LOS still blocked
-
-    G12 = G12_check(
-        state[0], state[1], state[2], cfg['obstacles'],
-        cfg['v'], cfg['Cs'], cfg['dsafe'], cfg['tp']
-    )
-
-    return not G12
 
 
 @guard

@@ -4,7 +4,6 @@ from .unsafe_sets import (
     get_unsafe_set_vertices,
     create_los_cone,
     compute_unified_unsafe_region,
-    check_collision_threat,
 )
 
 __all__ = [
@@ -15,5 +14,4 @@ __all__ = [
     "get_unsafe_set_vertices",
     "create_los_cone",
     "compute_unified_unsafe_region",
-    "check_collision_threat",
 ]

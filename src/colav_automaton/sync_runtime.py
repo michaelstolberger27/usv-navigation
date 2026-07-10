@@ -12,9 +12,9 @@ This mirrors hybrid_automaton's per-step semantics (integrate first,
 then guards, highest-priority transition wins, transition resets the
 clock) while replacing its wall-clock scheduling. The asynchronous
 runtime samples guards and control at unpredictable wall-clock
-instants, which makes outcomes load-dependent (HANDOFF §3) and is a
-*different* discretisation of the paper's model on every run; the
-fixed-dt evaluation here is the known, analyzable one.
+instants, which makes outcomes load-dependent and is a *different*
+discretisation of the paper's model on every run; the fixed-dt
+evaluation here is the known, analyzable one.
 
 Architecture note: asynchronous I/O (AIS listeners, ROS topics, UIs)
 belongs at the edges, writing into buffers; whoever owns the clock —

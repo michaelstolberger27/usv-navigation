@@ -3,9 +3,9 @@ Per-vessel track store with dead-reckoning between sparse AIS updates.
 
 AIS position reports arrive every 2-30+ s per vessel (class/speed
 dependent), with dropouts; the automaton wants a complete obstacle list
-(x, y, v, psi) every tick. This tracker is the first layer of the
-sensor-noise plan (HANDOFF §4): it absorbs the sparseness so the core
-keeps consuming clean per-tick states.
+(x, y, v, psi) every tick. This tracker is the first layer of sensor-
+noise handling: it absorbs the sparseness so the core keeps consuming
+clean per-tick states.
 
 Dead-reckoning is constant-velocity from the last report (the same
 motion model the unsafe-set API assumes). Upgrading a track to an EKF

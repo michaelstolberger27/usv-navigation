@@ -3,7 +3,7 @@ Tests for the deterministic tick-synchronous runtime.
 
 The determinism tests are the point of the whole class: identical
 inputs must give bit-identical trajectories and transition timings,
-which the wall-clock async runtime cannot guarantee (HANDOFF §3).
+which the wall-clock async runtime cannot guarantee.
 """
 import numpy as np
 import pytest

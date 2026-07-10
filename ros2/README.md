@@ -2,8 +2,8 @@
 
 A ROS 2 node that wraps the COLAV hybrid automaton, plus a closed-loop
 fake-world node so the full graph runs without a heavyweight simulator.
-This is the **Phase 7** entry point (roadmap in `../HANDOFF.md` §4);
-VRX/Gazebo and a C++ `rclcpp` node build on this foundation.
+The verified C++ port (`colav_cpp`) speaks the same topics; a VRX/Gazebo
+world is the planned next step.
 
 Tested on **ROS 2 Jazzy**.
 

@@ -8,8 +8,8 @@ control. Guard evaluation, transitions, and control computation are the
 same shared implementations the async runtime uses — but evaluated
 synchronously, so a scenario replays bit-identically regardless of host
 load (the previous background-asyncio design sampled guards at wall-
-clock instants, making outcomes run-to-run nondeterministic — see
-HANDOFF on T-838).
+clock instants, making outcomes run-to-run nondeterministic — one batch
+scenario collided in roughly 60% of runs before the migration).
 
 Usage in a VesselFactory::
 
@@ -65,7 +65,7 @@ class HybridAutomatonController(VesselController):
         # must span many evaluation steps (paper assumes dt << tp). A
         # literal tp of a few seconds at dt=1 destabilises the YP plant;
         # 60*dt reproduced the async-validated CPAs across the key
-        # scenarios and fixed T-838 (sweep 2026-06-12, HANDOFF §2).
+        # scenarios in a horizon sweep (2026-06-12).
         self.tp_control = tp_control if tp_control is not None else max(60.0 * dt, tp)
         self.sim = None  # set by simulator after construction
 

@@ -92,6 +92,7 @@ for idx, pp in enumerate(planning_problem_set._planning_problem_dict.values()):
         vesselid=pp.planning_problem_id,
         goal_waypoint=(goal_pos[0], goal_pos[1]),
     )
+    vessel.controller.real_time_pacing = True  # display run: pace for the viewer
     models.append(vessel)
     print(f"  Vessel {pp.planning_problem_id} [COLAV CONTROLLER]: "
           f"pos={init.position}, heading={np.degrees(init.orientation):.1f}deg, "

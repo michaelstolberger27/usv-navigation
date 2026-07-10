@@ -72,6 +72,7 @@ vessel_1 = colav_factory.get_vessel(
     ship_name="COLAV_East", vesselid=10,
     goal_waypoint=(2400.0, 0.0),
 )
+vessel_1.controller.real_time_pacing = True  # display run: pace for the viewer
 
 # ---- Vessel 2: Default MPC (West-bound) ----
 mpc_factory = SControlledYawParamVesselFactory(dt, config)

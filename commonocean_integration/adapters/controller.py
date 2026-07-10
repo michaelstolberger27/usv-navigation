@@ -20,7 +20,9 @@ Usage in a VesselFactory::
     vessel.set_controller(controller)
 """
 
+import logging
 import time
+
 import numpy as np
 
 from Controller.VesselController import VesselController
@@ -28,6 +30,8 @@ from Environment.SurfaceVessel import SurfaceVessel
 
 from colav_automaton import SyncColavRuntime
 from colav_automaton.controllers.unsafe_sets import compute_unified_unsafe_region
+
+logger = logging.getLogger(__name__)
 
 
 class HybridAutomatonController(VesselController):
@@ -87,7 +91,9 @@ class HybridAutomatonController(VesselController):
         self.v1_tracker = []  # Track virtual waypoints (V1) during avoidance
         self.v1_side_tracker = []  # 'port'/'starboard' of the active V1, else None
         self.unsafe_set_tracker = []  # Track unsafe set polygon coords each step
-        self.real_time_pacing = True  # sleep(dt) each tick for display sync
+        # Display scripts opt in to wall-clock pacing; batch runs leave
+        # it off (no effect on the trajectory either way).
+        self.real_time_pacing = False
         self._last_waypoint = None  # track waypoint changes
         self._last_automaton_state = None  # detect S2/S3 → S1 transitions
 
@@ -185,7 +191,7 @@ class HybridAutomatonController(VesselController):
                         vessel.next_waypoint = wps[idx]
                     else:
                         break
-                print(f"  [AVOIDANCE RECOVERY] Skipped to waypoint index {idx}")
+                logger.info("Avoidance recovery: skipped to waypoint index %d", idx)
         self._last_automaton_state = state_name
 
         # Prevent the sim from terminating on waypoint-path completion.
@@ -197,11 +203,12 @@ class HybridAutomatonController(VesselController):
                 pass
 
         if self.stepped % 10 == 1:
-            print(f"[step {self.stepped}] pos=({pos_x:.1f},{pos_y:.1f}) "
-                  f"psi={np.degrees(psi):.1f}deg "
-                  f"wp=({target_state[0]:.0f},{target_state[1]:.0f}) "
-                  f"u={u:.3f} yaw_rate={yaw_rate:.4f} "
-                  f"obs={len(cfg['obstacles'])} state={state_name}")
+            logger.debug(
+                "[step %d] pos=(%.1f,%.1f) psi=%.1fdeg wp=(%.0f,%.0f) "
+                "u=%.3f yaw_rate=%.4f obs=%d state=%s",
+                self.stepped, pos_x, pos_y, np.degrees(psi),
+                target_state[0], target_state[1], u, yaw_rate,
+                len(cfg['obstacles']), state_name)
         signal = np.array([0.0, yaw_rate])
         self.signal_tracker.append(np.copy(signal))
 
@@ -250,51 +257,24 @@ class HybridAutomatonController(VesselController):
 
         obstacles = []
 
-        if self.stepped % 50 == 1:  # Debug every 50 steps
-            n_models = len(self.sim.models)
-            n_dyn = len(self.sim.dynamic_obstacles) if self.sim.dynamic_obstacles else 0
-            print(f"  [{self.controlled_vessel.vessel_name}] Scanning {n_models} models + {n_dyn} dynamic obstacles")
-
         # Controlled vessels (other than self)
         for model in self.sim.models:
-            if model is self.controlled_vessel:
-                if self.stepped % 50 == 1:
-                    print(f"    - Skipping self: {model.vessel_name}")
+            if model is self.controlled_vessel or model.journey_finished:
                 continue
-            if model.journey_finished:
-                if self.stepped % 50 == 1:
-                    print(f"    - Skipping finished: {model.vessel_name}")
-                continue
-
             pos = model.position
-            speed = model.velocity
-            heading = model.heading
-
-            if self.stepped % 50 == 1:
-                print(f"    - Model: {model.vessel_name} at ({pos[0]:.1f}, {pos[1]:.1f}), "
-                      f"speed={speed:.1f} m/s, heading={np.degrees(heading):.1f}°")
-
-            obstacles.append((pos[0], pos[1], speed, heading))
+            obstacles.append((pos[0], pos[1], model.velocity, model.heading))
 
         # Dynamic obstacles from scenario
         if self.sim.dynamic_obstacles:
             for dyn_obs in self.sim.dynamic_obstacles:
-                # Get current state at this timestep
                 state = dyn_obs.state_at_time(self.stepped)
                 if state is None:
                     continue
-
                 pos = state.position
-                speed = state.velocity
-                heading = state.orientation
-
-                if self.stepped % 50 == 1:
-                    print(f"    - DynObs {dyn_obs.obstacle_id}: at ({pos[0]:.1f}, {pos[1]:.1f}), "
-                          f"speed={speed:.1f} m/s, heading={np.degrees(heading):.1f}°")
-
-                obstacles.append((pos[0], pos[1], speed, heading))
+                obstacles.append((pos[0], pos[1], state.velocity, state.orientation))
 
         if self.stepped % 50 == 1:
-            print(f"  [{self.controlled_vessel.vessel_name}] Total obstacles: {len(obstacles)}")
+            logger.debug("%s sees %d obstacles",
+                         self.controlled_vessel.vessel_name, len(obstacles))
 
         return obstacles

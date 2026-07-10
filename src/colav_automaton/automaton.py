@@ -107,7 +107,7 @@ def ColavAutomaton(
 
     ha = Automaton(
         name="COLAV Automaton",
-        version="0.0.1",
+        version="0.1.0",
         states=[S1, S2, S3],
         configuration={
             'waypoints': [(waypoint_x, waypoint_y)],

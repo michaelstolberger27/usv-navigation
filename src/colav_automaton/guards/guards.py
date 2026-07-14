@@ -15,9 +15,10 @@ def G11_and_G22_guard(ctx: RuntimeContext) -> bool:
     intersects the LOS cone (obstacle is in the path and close enough).
     G22 ensures the risk index is high enough to warrant avoidance.
 
-    G11 uses static (current position) unsafe regions.  This means crossing
-    encounters at wide angles may trigger later than ideal, but it ensures
-    V1 is always at a reachable distance (obstacle is nearby when S2 starts).
+    G11's unsafe region is motion-aware: obstacles are passed with their
+    actual velocity, so the region includes TCPA-predicted positions (see
+    compute_unified_unsafe_region).  The resume check G23 deliberately
+    uses static_only regions instead — see not_G23_guard.
     """
     state = ctx.continuous_state.latest()
     cfg = ctx.configuration

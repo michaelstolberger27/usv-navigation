@@ -146,9 +146,11 @@ def get_unsafe_set_vertices(
         dsf: Distance safety threshold (defaults to Cs if not provided)
         ship_psi: Ship heading in radians (default 0.0)
         ship_v: Ship velocity in m/s (default 12.0)
-        use_swept_region: If True, creates swept region for moving obstacles
-            (use for V1 computation). If False, uses current positions only
-            (use for G11 guard checks).
+        use_swept_region: If True, explicitly samples each obstacle's
+            predicted trajectory (capped at max_horizon) before hulling —
+            used for V1 computation. If False, obstacles are passed with
+            their actual velocity and the API's internal TCPA prediction
+            applies instead.
         max_horizon: Cap on the swept-region horizon (seconds). Limits sweep
             to the relevant avoidance window so V1 stays reachable. None means
             use full TCPA (original behaviour).

@@ -110,7 +110,7 @@ ros2 launch colav_ros gazebo_demo.launch.py
 ```
 
 <p align="center">
-  <img src="../assets/gazebo_demo_head_on.gif" alt="Gazebo head-on demo" width="80%"/>
+  <img src="../docs/assets/gazebo_demo_head_on.gif" alt="Gazebo head-on demo" width="80%"/>
 </p>
 
 - [`worlds/colav_demo.sdf`](src/colav_ros/worlds/colav_demo.sdf): two kinematic

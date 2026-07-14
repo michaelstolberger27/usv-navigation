@@ -11,7 +11,7 @@ PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
 ```
 
 <p align="center">
-  <img src="../assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+  <img src="../docs/assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
 </p>
 
 ## Recording and replaying real traffic

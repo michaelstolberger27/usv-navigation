@@ -10,8 +10,8 @@ A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface
 across 2000 simulated encounters and real AIS traffic, and deployed as a verified C++ ROS 2 node.
 
 <p align="center">
-  <img src="assets/scenario3_head_on_encounter.gif" alt="Head-on encounter avoidance" width="49%"/>
-  <img src="assets/scenario6_multi_vessel_crossing.gif" alt="Multi-vessel crossing avoidance" width="49%"/>
+  <img src="docs/assets/scenario3_head_on_encounter.gif" alt="Head-on encounter avoidance" width="49%"/>
+  <img src="docs/assets/scenario6_multi_vessel_crossing.gif" alt="Multi-vessel crossing avoidance" width="49%"/>
 </p>
 
 ## Highlights
@@ -160,7 +160,7 @@ Harmonic server through `ros_gz_bridge` with the controller node unchanged — p
 topic remapping plus `use_sim_time`:
 
 <p align="center">
-  <img src="assets/gazebo_demo_head_on.gif" alt="Gazebo head-on demo" width="75%"/>
+  <img src="docs/assets/gazebo_demo_head_on.gif" alt="Gazebo head-on demo" width="75%"/>
 </p>
 
 A `launch_testing` smoke test brings up the node pair and asserts the full
@@ -185,7 +185,7 @@ PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
 ```
 
 <p align="center">
-  <img src="assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+  <img src="docs/assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
 </p>
 
 Recording your own traffic, replay flags, and the tracking layer:

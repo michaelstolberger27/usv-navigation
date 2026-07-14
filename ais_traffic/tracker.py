@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ais_replay.geo import LocalFrame, cog_to_psi, knots_to_ms
+from ais_traffic.geo import LocalFrame, cog_to_psi, knots_to_ms
 
 # AIS sentinel values
 _COG_UNAVAILABLE = 360.0

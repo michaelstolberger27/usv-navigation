@@ -15,9 +15,9 @@ Components:
                 using the same pattern as the CommonOcean adapter
 """
 
-from ais_replay.geo import LocalFrame
-from ais_replay.tracker import AISReport, TrafficTracker
-from ais_replay.sources import RecordedAISSource, parse_aisstream_message
+from ais_traffic.geo import LocalFrame
+from ais_traffic.tracker import AISReport, TrafficTracker
+from ais_traffic.sources import RecordedAISSource, parse_aisstream_message
 
 __all__ = [
     "LocalFrame",

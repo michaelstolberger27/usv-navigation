@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from ais_replay.geo import LocalFrame
+from ais_traffic.geo import LocalFrame
 
 RNG = np.random.default_rng(42)
 

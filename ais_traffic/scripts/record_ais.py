@@ -6,7 +6,7 @@ run_replay.py can replay.
 Requires a free API key (https://aisstream.io) and `pip install -e .[ais]`.
 
 Usage:
-    PYTHONPATH=src:. python3 ais_replay/scripts/record_ais.py \
+    PYTHONPATH=src:. python3 ais_traffic/scripts/record_ais.py \
         --bbox 1.15,103.7,1.35,104.1 \
         --duration 1800 \
         --out singapore_strait.jsonl

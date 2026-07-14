@@ -58,7 +58,7 @@ the control law, defaulting to `tp` — this lets an integration use a longer co
 horizon than the geometric `tp` that sizes `dsafe`). Two stepping modes:
 
 - **`step(dt, obstacles)`** — the runtime integrates the vessel itself (used by the
-  [AIS replay runner](../ais_replay/README.md) and the standalone examples).
+  [AIS replay runner](../ais_traffic/README.md) and the standalone examples).
 - **`step_external(...)`** — the caller owns vessel integration and feeds pose back;
   the runtime only evaluates guards and returns mode + control (used by the
   [CommonOcean adapter](../commonocean_integration/README.md) and the

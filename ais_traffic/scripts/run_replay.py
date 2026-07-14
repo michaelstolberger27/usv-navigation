@@ -7,10 +7,10 @@ No Docker or simulator required — only the core package and matplotlib.
 
 Usage (from the repo root):
     # Bundled synthetic sample (Singapore Strait geometry)
-    PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
+    PYTHONPATH=src:. python3 ais_traffic/scripts/run_replay.py
 
     # A real recording captured with record_ais.py
-    PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py \
+    PYTHONPATH=src:. python3 ais_traffic/scripts/run_replay.py \
         --recording my_harbor.jsonl \
         --ego-start 1.195,103.84 --goal 1.205,103.89
 
@@ -35,10 +35,10 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Polygon as MplPolygon
 
-from ais_replay.geo import LocalFrame
-from ais_replay.runner import ReplayRunner
-from ais_replay.sources import RecordedAISSource
-from ais_replay.tracker import TrafficTracker
+from ais_traffic.geo import LocalFrame
+from ais_traffic.runner import ReplayRunner
+from ais_traffic.sources import RecordedAISSource
+from ais_traffic.tracker import TrafficTracker
 
 DEFAULT_RECORDING = SCRIPT_DIR.parent / "sample_data" / "sample_strait.jsonl"
 # Defaults matched to the bundled sample's geometry (west -> east transit)
@@ -157,7 +157,7 @@ def main():
     ap.add_argument("--obstacle-range", type=float, default=8000.0,
                     help="only pass tracks within this range of the ego "
                          "to the automaton (m); 0 = no filter")
-    ap.add_argument("--output-dir", default=str(REPO_ROOT / "output" / "ais_replay"))
+    ap.add_argument("--output-dir", default=str(REPO_ROOT / "output" / "ais_traffic"))
     ap.add_argument("--no-gif", action="store_true")
     args = ap.parse_args()
 

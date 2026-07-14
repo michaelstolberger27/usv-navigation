@@ -23,7 +23,7 @@ across 2000 simulated encounters and real AIS traffic, and deployed as a verifie
   layer, up to a full 842-step avoidance trajectory reproduced **bit-identically**; the `rclcpp`
   node is a drop-in replacement for the Python node — [ros2/](ros2/README.md)
 - **Validated on real ship traffic** — a 30-minute, 393-vessel Singapore Strait AIS recording
-  replayed deterministically through the automaton — [ais_replay/](ais_replay/README.md)
+  replayed deterministically through the automaton — [ais_traffic/](ais_traffic/README.md)
 - **Deterministic and candid** — a tick-synchronous runtime gives bit-identical reruns, and the
   failure modes it exposed on real data are documented and pinned as `strict` xfail tests —
   [Known limitations](#known-limitations)
@@ -52,7 +52,7 @@ every result reproducible bit-for-bit (see [Evaluation Results](#evaluation-resu
 
 The core automaton is pure Python with no simulator dependencies; around it sit three
 independent integrations — a [CommonOcean simulator harness](commonocean_integration/README.md)
-for large-scale evaluation, a [real AIS traffic adapter](ais_replay/README.md), and a
+for large-scale evaluation, a [real AIS traffic adapter](ais_traffic/README.md), and a
 [ROS 2 workspace](ros2/README.md) with a verified C++ port.
 
 ## System Architecture
@@ -172,7 +172,7 @@ Build, run, and verification details: [`ros2/README.md`](ros2/README.md).
 
 ## Real AIS Traffic Replay
 
-The [`ais_replay/`](ais_replay/) adapter feeds **AIS vessel traffic** into the automaton —
+The [`ais_traffic/`](ais_traffic/) adapter feeds **AIS vessel traffic** into the automaton —
 recorded or live from [aisstream.io](https://aisstream.io) — with no simulator required.
 A per-vessel tracking layer dead-reckons between sparse AIS reports (2-30+ s apart) and
 expires stale tracks, so the automaton consumes clean per-tick obstacle states; recordings
@@ -181,15 +181,15 @@ what surfaced the first two [known limitations](#known-limitations).
 
 ```bash
 # Replay the bundled sample scenario (Singapore Strait geometry)
-PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
+PYTHONPATH=src:. python3 ais_traffic/scripts/run_replay.py
 ```
 
 <p align="center">
-  <img src="docs/assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+  <img src="docs/assets/ais_traffic_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
 </p>
 
 Recording your own traffic, replay flags, and the tracking layer:
-[`ais_replay/README.md`](ais_replay/README.md).
+[`ais_traffic/README.md`](ais_traffic/README.md).
 
 ## Getting Started
 
@@ -272,7 +272,7 @@ usv-navigation/
 │   ├── dynamics/ resets/ invariants/
 │   └── _compat.py                #   normalizes the unsafe-set dependency's CPA sign convention
 ├── commonocean_integration/      # Simulator adapter + batch evaluation (Docker) — see its README
-├── ais_replay/                   # Real AIS traffic replay, recorded + live — see its README
+├── ais_traffic/                   # Real AIS traffic replay, recorded + live — see its README
 ├── ros2/                         # ROS 2 workspace: Python & C++ nodes, Gazebo demo — see its README
 ├── examples/                     # Standalone animated simulation (no Docker required)
 ├── tests/                        # Unit + behavioural regression suite
@@ -288,7 +288,7 @@ usv-navigation/
 | [docs/design.md](docs/design.md) | Automaton parameters, both runtimes, guard math, controllers |
 | [ros2/README.md](ros2/README.md) | ROS 2 build/run, C++ port verification, Gazebo demo |
 | [commonocean_integration/README.md](commonocean_integration/README.md) | Docker stack, scenario runs, batch evaluation, visualization |
-| [ais_replay/README.md](ais_replay/README.md) | Recording and replaying AIS traffic, the tracking layer |
+| [ais_traffic/README.md](ais_traffic/README.md) | Recording and replaying AIS traffic, the tracking layer |
 
 ## Acknowledgments
 

@@ -11,12 +11,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ais_replay.geo import LocalFrame, M_PER_DEG_LAT, cog_to_psi, knots_to_ms
-from ais_replay.runner import ReplayRunner
-from ais_replay.sources import RecordedAISSource, parse_aisstream_message
-from ais_replay.tracker import AISReport, TrafficTracker
+from ais_traffic.geo import LocalFrame, M_PER_DEG_LAT, cog_to_psi, knots_to_ms
+from ais_traffic.runner import ReplayRunner
+from ais_traffic.sources import RecordedAISSource, parse_aisstream_message
+from ais_traffic.tracker import AISReport, TrafficTracker
 
-SAMPLE = Path(__file__).parent.parent / "ais_replay" / "sample_data" / "sample_strait.jsonl"
+SAMPLE = Path(__file__).parent.parent / "ais_traffic" / "sample_data" / "sample_strait.jsonl"
 
 
 class TestLocalFrame:

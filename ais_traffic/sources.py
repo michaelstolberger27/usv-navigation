@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from typing import Iterator, List, Optional
 
-from ais_replay.tracker import AISReport, TrafficTracker
+from ais_traffic.tracker import AISReport, TrafficTracker
 
 
 def _parse_time_utc(value) -> Optional[float]:

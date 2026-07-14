@@ -7,11 +7,11 @@ every time.
 
 ```bash
 # From the repo root: replay the bundled sample scenario (Singapore Strait geometry)
-PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
+PYTHONPATH=src:. python3 ais_traffic/scripts/run_replay.py
 ```
 
 <p align="center">
-  <img src="../docs/assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+  <img src="../docs/assets/ais_traffic_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
 </p>
 
 ## Recording and replaying real traffic
@@ -20,9 +20,9 @@ Record live traffic with a free [aisstream.io](https://aisstream.io) API key, th
 replay it with an ego route of your choosing:
 
 ```bash
-PYTHONPATH=src:. python3 ais_replay/scripts/record_ais.py \
+PYTHONPATH=src:. python3 ais_traffic/scripts/record_ais.py \
     --bbox 1.15,103.7,1.35,104.1 --duration 1800 --out strait.jsonl
-PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py \
+PYTHONPATH=src:. python3 ais_traffic/scripts/run_replay.py \
     --recording strait.jsonl --ego-start 1.20,103.85 --goal 1.20,103.95
 ```
 

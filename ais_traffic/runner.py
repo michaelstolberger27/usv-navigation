@@ -20,8 +20,8 @@ import numpy as np
 from colav_automaton import SyncColavRuntime
 from colav_automaton.controllers.unsafe_sets import compute_unified_unsafe_region
 
-from ais_replay.sources import RecordedAISSource
-from ais_replay.tracker import TrafficTracker
+from ais_traffic.sources import RecordedAISSource
+from ais_traffic.tracker import TrafficTracker
 
 
 class ReplayRunner:

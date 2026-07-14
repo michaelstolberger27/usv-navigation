@@ -53,6 +53,6 @@ line-length = 120
 
 [tool.ruff.lint.per-file-ignores]
 # Entry-point scripts must extend sys.path before importing project modules
-"ais_replay/scripts/*" = ["E402"]
+"ais_traffic/scripts/*" = ["E402"]
 "commonocean_integration/scripts/*" = ["E402"]
 "examples/*" = ["E402"]

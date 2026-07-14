@@ -5,50 +5,55 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface Vehicles (USVs) that provides provably safe autonomous navigation in dynamic environments.
+A hybrid automaton-based collision avoidance (COLAV) system for Unmanned Surface Vehicles
+(USVs) that provides provably safe autonomous navigation in dynamic environments — validated
+across 2000 simulated encounters and real AIS traffic, and deployed as a verified C++ ROS 2 node.
 
 <p align="center">
   <img src="assets/scenario3_head_on_encounter.gif" alt="Head-on encounter avoidance" width="49%"/>
   <img src="assets/scenario6_multi_vessel_crossing.gif" alt="Multi-vessel crossing avoidance" width="49%"/>
 </p>
 
+## Highlights
+
+- **0 collisions, 1999/2000 goals reached** on the CommonOcean HandcraftedTwoVesselEncounters
+  benchmark (2000 two-vessel encounters with real curving traffic trajectories), bit-identical
+  across reruns — [Evaluation Results](#evaluation-results)
+- **A verified C++ port, deployed in ROS 2** — cross-checked against the Python core layer by
+  layer, up to a full 842-step avoidance trajectory reproduced **bit-identically**; the `rclcpp`
+  node is a drop-in replacement for the Python node — [ros2/](ros2/README.md)
+- **Validated on real ship traffic** — a 30-minute, 393-vessel Singapore Strait AIS recording
+  replayed deterministically through the automaton — [ais_replay/](ais_replay/README.md)
+- **Deterministic and candid** — a tick-synchronous runtime gives bit-identical reruns, and the
+  failure modes it exposed on real data are documented and pinned as `strict` xfail tests —
+  [Known limitations](#known-limitations)
+
 ## Table of Contents
 
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-  - [Basic Usage](#basic-usage)
-  - [Running Examples](#running-examples)
-  - [AIS Replay (real ship traffic)](#ais-replay-real-ship-traffic)
-  - [Testing with CommonOcean Simulator](#testing-with-commonocean-simulator)
-  - [Batch Evaluation](#batch-evaluation)
-  - [Visualization](#visualization)
-- [ROS 2 Node and Verified C++ Port](#ros-2-node-and-verified-c-port)
 - [Evaluation Results](#evaluation-results)
+- [Known limitations](#known-limitations)
+- [ROS 2 Node and Verified C++ Port](#ros-2-node-and-verified-c-port)
+- [Real AIS Traffic Replay](#real-ais-traffic-replay)
+- [Getting Started](#getting-started)
 - [Running the Tests](#running-the-tests)
 - [Project Structure](#project-structure)
-- [Key Components](#key-components)
-  - [Automaton Factory](#automaton-factory)
-  - [State Dynamics](#state-dynamics)
-  - [Guards & Collision Detection](#guards--collision-detection)
-  - [Controllers](#controllers)
-- [Algorithm References](#algorithm-references)
+- [Documentation](#documentation)
 - [Acknowledgments](#acknowledgments)
 
 ## Overview
 
-This project implements a **3-state hybrid automaton** that autonomously guides a maritime vessel toward waypoints while dynamically avoiding obstacles. The system uses prescribed-time control theory and unsafe set geometry to guarantee collision-free navigation with formal safety properties.
+This project implements a **3-state hybrid automaton** that autonomously guides a maritime
+vessel toward waypoints while dynamically avoiding obstacles. The system uses prescribed-time
+control theory and unsafe set geometry to guarantee collision-free navigation with formal
+safety properties — validated with zero collisions across 2000 simulated encounter scenarios,
+every result reproducible bit-for-bit (see [Evaluation Results](#evaluation-results)).
 
-### Key Features
-
-- **Formal Safety Guarantees**: Uses unsafe set theory with convex hull geometry for provably safe collision avoidance
-- **Prescribed-Time Control**: Guaranteed convergence to waypoints within predefined time horizons
-- **Multi-Obstacle Support**: Handles multiple static and dynamic obstacles simultaneously
-- **Dynamic Obstacle Prediction**: Accounts for obstacle motion and trajectory prediction
-- **Real-Time Visualization**: Live animated simulation with state visualization and unsafe set display
-- **Deterministic Runtime**: tick-synchronous executive (`SyncColavRuntime`) with bit-identical reruns — same guards/resets/dynamics as the async runtime, no wall-clock dependence
-- **Modular Architecture**: Clean separation of core automaton logic from simulator/AIS integrations
+The core automaton is pure Python with no simulator dependencies; around it sit three
+independent integrations — a [CommonOcean simulator harness](commonocean_integration/README.md)
+for large-scale evaluation, a [real AIS traffic adapter](ais_replay/README.md), and a
+[ROS 2 workspace](ros2/README.md) with a verified C++ port.
 
 ## System Architecture
 
@@ -81,211 +86,58 @@ stateDiagram-v2
 - **G23**: The obstacle's unsafe region still intersects the LOS to the waypoint (resume check)
 - **K_off hysteresis**: Resuming from S3 additionally requires the risk index to drop below `K_off < K`. Without it, a still-converging obstacle can re-trigger avoidance the instant the ship resumes, causing rapid S2/S3/S1 cycling with a freshly recomputed V1 each time — observed as both collisions and non-reproducible outcomes before the fix
 
-## Installation
+Full guard math, controller details, and the parameter reference:
+[docs/design.md](docs/design.md).
 
-### Prerequisites
+## Evaluation Results
 
-- Python 3.10+
-- NumPy, Shapely, Matplotlib
+Evaluated on the CommonOcean **HandcraftedTwoVesselEncounters** dataset (2000 two-vessel
+encounter scenarios with real curving traffic trajectories; ego `Cs=300 m`, `tp=3 s`,
+`dt=1 s`):
 
-### Required Packages
+| Metric | Result |
+|---|---|
+| Collisions | **0 / 2000** |
+| Goal reached | 1999 / 2000 |
+| Scenarios with avoidance activated | 814 |
+| Average CPA during avoidance | ~556 m |
 
-```bash
-pip install -e .[viz]
-```
+Successive design iterations on this dataset (collisions / goal failures): 16 / 21 (V1 from
+current obstacle positions) → 1 / 5 (V1 from a horizon-capped swept region) → 1 / 1 (adding
+the `K_off` resume hysteresis, see [Guard Conditions](#guard-conditions)) → **0 / 1** (the
+[deterministic runtime](src/colav_automaton/sync_runtime.py), which removed the last collision
+and made every result reproducible). The one remaining failure is a no-collision miss
+(avoided safely at 532 m CPA but did not reach the goal in the step budget), see
+[Known limitations](#known-limitations). A 25-scenario MarineCadastre (AIS-derived) set is
+also evaluated — see [commonocean_integration/](commonocean_integration/README.md).
 
-### External Dependencies
+These figures are from the tick-synchronous runtime and are bit-identical across reruns; the
+earlier wall-clock async runtime produced the 1-collision row above and varied run to run.
 
-- `hybrid_automaton`: Hybrid automaton framework with state, transition, decorator support, and async runtime
-- `colav_unsafe_set`: Unsafe set computation and obstacle metric calculation (DCPA/TCPA)
+## Known limitations
 
-### Setup
+Documented deliberately — the first two were discovered by replaying a 30-minute recording
+of real Singapore Strait AIS traffic (393 vessels) against the automaton, and both are
+reproduced deterministically as `strict` xfail tests in
+[`tests/test_behaviour_regression.py`](tests/test_behaviour_regression.py), so the suite
+flags the moment a fix lands:
 
-```bash
-git clone <repository-url>
-cd usv-navigation
-pip install -e .[viz]
-```
-
-## Quick Start
-
-### Basic Usage
-
-```python
-import asyncio
-import numpy as np
-from colav_automaton import ColavAutomaton, HeadingControlProvider
-from hybrid_automaton import Automaton, RunResult
-
-async def main():
-    ha: Automaton = ColavAutomaton(
-        waypoint_x=10.0,
-        waypoint_y=9.0,
-        obstacles=[(5.0, 4.5, 0.0, 0.0)],  # (x, y, velocity, heading)
-        Cs=2.0,   # Safety radius (meters)
-        v=12.0,   # Vessel velocity (m/s)
-        tp=1.0    # Prescribed time (seconds)
-    )
-
-    controller = HeadingControlProvider(ha)
-
-    results: RunResult = await ha.activate(
-        initial_continuous_state=np.array([0.0, 0.0, 0.0]),  # [x, y, heading]
-        initial_control_input_states={'u': np.array([0.0])},
-        enable_real_time_mode=False,
-        enable_self_integration=True,
-        delta_time=0.1,
-        timeout_sec=15.0,
-        continuous_state_sampler_enabled=True,
-        continuous_state_sampler_rate=100,
-        control_states_provider=controller,
-        control_states_provision_rate=100,
-    )
-
-    print(results)
-
-asyncio.run(main())
-```
-
-#### Deterministic synchronous usage
-
-For reproducible simulation and analysis (and as the basis for new
-integrations), step the automaton tick-by-tick in sim time — identical
-inputs give bit-identical trajectories:
-
-```python
-import numpy as np
-from colav_automaton import SyncColavRuntime
-
-rt = SyncColavRuntime(
-    waypoint=(5000.0, 0.0),
-    obstacles=[(2500.0, 0.0, 5.0, np.pi)],   # (x, y, velocity, heading)
-    initial_state=(0.0, 0.0, 0.0),           # [x, y, heading]
-    Cs=300.0, v=6.0, tp=3.0,
-)
-while not rt.goal_reached():
-    result = rt.step(dt=1.0, obstacles=current_obstacle_states())
-    print(result.t, result.mode, result.state)
-```
-
-### Running Examples
-
-#### Real-Time Animated Simulation
-
-Run predefined scenarios and save animations as GIFs (no Docker required):
-
-```bash
-python examples/realtime_simulation.py                  # Default scenario (1)
-python examples/realtime_simulation.py --scenario 3     # Specific scenario
-python examples/realtime_simulation.py --all            # Run all scenarios
-python examples/realtime_simulation.py --no-unsafe      # Hide unsafe region overlay
-```
-
-**Available Scenarios:**
-1. Single Stationary Obstacle
-2. Multiple Obstacles (Crowded Environment)
-3. Head-On Encounter
-4. Crossing Encounter
-5. Overtaking Encounter
-6. Multi-Vessel Crossing
-
-### AIS Replay (real ship traffic)
-
-The [`ais_replay/`](ais_replay/) adapter feeds **AIS vessel traffic** into the automaton —
-recorded or live — with no simulator required:
-
-```bash
-# Replay the bundled sample scenario (Singapore Strait geometry)
-PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
-
-# Record real traffic from aisstream.io (free API key), then replay it
-PYTHONPATH=src:. python3 ais_replay/scripts/record_ais.py \
-    --bbox 1.15,103.7,1.35,104.1 --duration 1800 --out strait.jsonl
-PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py \
-    --recording strait.jsonl --ego-start 1.20,103.85 --goal 1.20,103.95
-```
-
-<p align="center">
-  <img src="assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
-</p>
-
-AIS reports arrive sparsely (2-30+ s per vessel), so a per-vessel **tracking layer**
-dead-reckons between updates and expires stale tracks — the automaton keeps consuming
-clean per-tick obstacle states. Recordings are raw aisstream.io JSONL, replayed
-bit-identically. Live mode (`AISStreamSource`) needs `pip install -e .[ais]`.
-
-### Testing with CommonOcean Simulator
-
-The COLAV automaton integrates with [commonocean-sim](https://github.com/CommonOcean/commonocean-sim) via the adapter layer in `commonocean_integration/`. A Docker setup provides the full simulation stack (commonocean-sim, Gurobi, VNC) pre-configured.
-
-**Start the container:**
-
-```bash
-# Interactive shell
-docker/start.sh -it
-
-# Or detached (access via VNC at http://localhost:6080/vnc.html)
-docker/start.sh
-```
-
-**Run a head-on collision test** (COLAV vessel East-bound vs MPC vessel West-bound):
-
-```bash
-cd /app/commonocean-sim/src
-python3 /app/usv-navigation/commonocean_integration/scripts/commonocean_collision_test.py
-```
-
-Saves a trajectory plot and animated GIF to `/app/usv-navigation/output/`.
-
-**Run a single CommonOcean XML scenario:**
-
-```bash
-cd /app/commonocean-sim/src
-python3 /app/usv-navigation/commonocean_integration/scripts/commonocean_scenario.py
-python3 /app/usv-navigation/commonocean_integration/scripts/commonocean_scenario.py <path.xml>
-```
-
-The first planning problem is controlled by the COLAV automaton; remaining vessels and dynamic obstacles are handled by commonocean-sim defaults.
-
-> **Note:** Traffic trajectories are automatically interpolated from the scenario's 10s timestep to the simulation's 1s timestep so both vessels use the same physical time rate.
-
-### Batch Evaluation
-
-Evaluate the COLAV automaton across a large set of CommonOcean XML scenarios:
-
-```bash
-cd /app/commonocean-sim/src
-
-# Run all scenarios
-python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate.py
-
-# Quick test with a small subset
-python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate.py --limit 10
-
-# Resume a previous run (skips already-completed scenarios)
-python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate.py --resume
-
-# Custom scenarios directory and output
-python3 /app/usv-navigation/commonocean_integration/scripts/batch_evaluate.py \
-    --scenarios-dir /app/scenarios \
-    --output-dir /app/usv-navigation/output/batch_eval \
-    --limit 50 --start 0
-```
-
-Results are saved incrementally to `output/batch_eval/results.csv` with per-scenario metrics including CPA distance, goal reached, collision detected, encounter type, and automaton state time distribution. Summary plots are generated on completion.
-
-There are three batch runners, one per dataset (they differ in how traffic trajectories are sourced): `batch_evaluate.py` (generic), `batch_evaluate_handcrafted.py` (pre-computed trajectories from the XML), and `batch_evaluate_marine_cadastre.py` (straight-line traffic synthesized from AIS-derived planning problems). All support `--limit`, `--start`, `--scenario-ids`, `--resume`, and `--max-runtime`.
-
-### Visualization
-
-The simulation generates trajectory plots and animations showing:
-
-- **Vessel trajectory** with state-based colouring (Blue: S1, Red: S2, Orange: S3)
-- **Obstacle positions** with safety radius circles
-- **Unsafe set regions** (convex hulls)
-- **Virtual waypoint V1** (when in avoidance mode)
-- **Heading arrows** on the ego vessel
-- **Current state indicator** (S1/S2/S3) with time readout
+- **Dense traffic degenerates the unified unsafe region.** Guard geometry builds *one*
+  convex hull over all obstacles. With many scattered vessels (a busy strait), that hull
+  covers the whole area: G11 reports a blocked path even when the corridor between traffic
+  lanes is genuinely clear, and the resume check ¬G23 can never pass. Fix direction:
+  per-obstacle regions (a union, not a hull) or obstacle clustering for guard checks.
+- **The resume hysteresis is global.** Leaving S3 requires the *maximum* risk index over
+  all obstacles to drop below `K_off`; in steady traffic someone is always approaching, so
+  the vessel can stay frozen on its held heading long after the threat that triggered
+  avoidance has passed. Fix direction: per-threat hysteresis (resume when the risk from the
+  obstacle(s) that triggered avoidance subsides).
+- **Overtaking clearance sits close to `Cs`.** At the evaluation scale the overtaking pass
+  clears the slow vessel at roughly the safety radius (~300-310 m across sampled
+  geometries) rather than with a wide margin, because the vessel cuts back toward its track
+  after passing the virtual waypoint.
+- **One evaluation miss remains** (`T-1964`): avoided safely (CPA 532 m) but did not reach
+  the goal within the step budget.
 
 ## ROS 2 Node and Verified C++ Port
 
@@ -318,55 +170,78 @@ smoke test) in a `ros:jazzy` container on every push.
 
 Build, run, and verification details: [`ros2/README.md`](ros2/README.md).
 
-## Evaluation Results
+## Real AIS Traffic Replay
 
-Evaluated on the CommonOcean **HandcraftedTwoVesselEncounters** dataset (2000 two-vessel
-encounter scenarios with real curving traffic trajectories; ego `Cs=300 m`, `tp=3 s`,
-`dt=1 s`):
+The [`ais_replay/`](ais_replay/) adapter feeds **AIS vessel traffic** into the automaton —
+recorded or live from [aisstream.io](https://aisstream.io) — with no simulator required.
+A per-vessel tracking layer dead-reckons between sparse AIS reports (2-30+ s apart) and
+expires stale tracks, so the automaton consumes clean per-tick obstacle states; recordings
+replay bit-identically. Replaying real Singapore Strait traffic through the automaton is
+what surfaced the first two [known limitations](#known-limitations).
 
-| Metric | Result |
-|---|---|
-| Collisions | **0 / 2000** |
-| Goal reached | 1999 / 2000 |
-| Scenarios with avoidance activated | 814 |
-| Average CPA during avoidance | ~556 m |
+```bash
+# Replay the bundled sample scenario (Singapore Strait geometry)
+PYTHONPATH=src:. python3 ais_replay/scripts/run_replay.py
+```
 
-Successive design iterations on this dataset (collisions / goal failures): 16 / 21 (V1 from
-current obstacle positions) → 1 / 5 (V1 from a horizon-capped swept region) → 1 / 1 (adding
-the `K_off` resume hysteresis, see [Guard Conditions](#guard-conditions)) → **0 / 1** (the
-[deterministic runtime](#deterministic-synchronous-usage), which removed the last collision
-and made every result reproducible). The one remaining failure is a no-collision miss
-(avoided safely at 532 m CPA but did not reach the goal in the step budget), see
-[Known limitations](#known-limitations). A 25-scenario MarineCadastre (AIS-derived) set is
-also evaluated via `batch_evaluate_marine_cadastre.py`.
+<p align="center">
+  <img src="assets/ais_replay_sample_strait.gif" alt="AIS replay through strait traffic" width="70%"/>
+</p>
 
-These figures are from the tick-synchronous runtime and are bit-identical across reruns; the
-earlier wall-clock async runtime produced the 1-collision row above and varied run to run.
+Recording your own traffic, replay flags, and the tracking layer:
+[`ais_replay/README.md`](ais_replay/README.md).
 
-## Known limitations
+## Getting Started
 
-Documented deliberately — the first two were discovered by replaying a 30-minute recording
-of real Singapore Strait AIS traffic (393 vessels) against the automaton, and both are
-reproduced deterministically as `strict` xfail tests in
-[`tests/test_behaviour_regression.py`](tests/test_behaviour_regression.py), so the suite
-flags the moment a fix lands:
+Requires Python 3.10+. Core dependencies (`numpy`, `shapely`, and the
+`hybrid-automaton` / `colav-unsafe-set` algorithm packages) install automatically;
+`[viz]` adds matplotlib for the animated examples:
 
-- **Dense traffic degenerates the unified unsafe region.** Guard geometry builds *one*
-  convex hull over all obstacles. With many scattered vessels (a busy strait), that hull
-  covers the whole area: G11 reports a blocked path even when the corridor between traffic
-  lanes is genuinely clear, and the resume check ¬G23 can never pass. Fix direction:
-  per-obstacle regions (a union, not a hull) or obstacle clustering for guard checks.
-- **The resume hysteresis is global.** Leaving S3 requires the *maximum* risk index over
-  all obstacles to drop below `K_off`; in steady traffic someone is always approaching, so
-  the vessel can stay frozen on its held heading long after the threat that triggered
-  avoidance has passed. Fix direction: per-threat hysteresis (resume when the risk from the
-  obstacle(s) that triggered avoidance subsides).
-- **Overtaking clearance sits close to `Cs`.** At the evaluation scale the overtaking pass
-  clears the slow vessel at roughly the safety radius (~300-310 m across sampled
-  geometries) rather than with a wide margin, because the vessel cuts back toward its track
-  after passing the virtual waypoint.
-- **One evaluation miss remains** (`T-1964`): avoided safely (CPA 532 m) but did not reach
-  the goal within the step budget.
+```bash
+git clone https://github.com/michaelstolberger27/usv-navigation.git
+cd usv-navigation
+pip install -e .[viz]
+```
+
+### Minimal example
+
+Step the automaton tick-by-tick in sim time with the deterministic synchronous
+runtime — identical inputs give bit-identical trajectories:
+
+```python
+import numpy as np
+from colav_automaton import SyncColavRuntime
+
+rt = SyncColavRuntime(
+    waypoint=(5000.0, 0.0),
+    obstacles=[(2500.0, 0.0, 5.0, np.pi)],   # (x, y, velocity, heading)
+    initial_state=(0.0, 0.0, 0.0),           # [x, y, heading]
+    Cs=300.0, v=6.0, tp=3.0,
+)
+while not rt.goal_reached():
+    result = rt.step(dt=1.0, obstacles=current_obstacle_states())
+    print(result.t, result.mode, result.state)
+```
+
+The original async wall-clock runtime and the full parameter reference are in
+[docs/design.md](docs/design.md).
+
+### Animated examples (no Docker)
+
+```bash
+python examples/realtime_simulation.py --scenario 3    # head-on encounter
+python examples/realtime_simulation.py --all           # all six scenarios
+```
+
+Six predefined scenarios (stationary obstacle, crowded environment, head-on, crossing,
+overtaking, multi-vessel crossing — the GIFs above are scenarios 3 and 6); `--no-unsafe`
+hides the unsafe-region overlay.
+
+### Simulator evaluation
+
+Large-scale evaluation against CommonOcean scenario datasets runs in a Docker stack
+(commonocean-sim + Gurobi + VNC): see
+[`commonocean_integration/README.md`](commonocean_integration/README.md).
 
 ## Running the Tests
 
@@ -389,144 +264,31 @@ No simulator or Docker is required. CI runs ruff and the suite on Python 3.10 an
 
 ```
 usv-navigation/
-├── src/
-│   └── colav_automaton/               # Core automaton — no CommonOcean dependencies
-│       ├── __init__.py                # Package exports (ColavAutomaton, SyncColavRuntime, ...)
-│       ├── automaton.py               # Automaton factory
-│       ├── controllers/
-│       │   ├── prescribed_time.py     # Prescribed-time heading controller & HeadingControlProvider
-│       │   ├── virtual_waypoint.py    # Virtual waypoint V1 computation (COLREGs-compliant)
-│       │   └── unsafe_sets.py         # Unsafe set geometry and LOS cone construction
-│       ├── dynamics/
-│       │   └── dynamics.py            # State flow dynamics (S1/S2 navigation, S3 constant)
-│       ├── guards/
-│       │   ├── guards.py              # Transition guards (G11∧G22, ¬L1∨¬L2, ¬G23 + K_off hysteresis)
-│       │   └── conditions.py          # Guard conditions (G11, G22, G23, L1, L2, risk index)
-│       ├── resets/
-│       │   └── resets.py              # State reset handlers (V1 computation & waypoint stack)
-│       └── invariants/
-│           └── invariants.py          # State invariant conditions
-├── commonocean_integration/           # CommonOcean-specific code (requires Docker)
-│   ├── sim_utils.py                   # Shared utilities: trajectory interpolation, config loading
-│   ├── adapters/
-│   │   ├── controller.py              # HybridAutomatonController (commonocean-sim adapter)
-│   │   └── vessel_factory.py          # ColavVesselFactory (creates YP-model vessels)
-│   ├── evaluation/
-│   │   └── metrics.py                 # Per-scenario metrics: CPA, goal reached, encounter type
-│   └── scripts/
-│       ├── batch_evaluate.py          # Batch runner (generic dataset)
-│       ├── batch_evaluate_handcrafted.py      # Batch runner (HandcraftedTwoVesselEncounters)
-│       ├── batch_evaluate_marine_cadastre.py  # Batch runner (MarineCadastre AIS scenarios)
-│       ├── animate_scenario.py        # Render a scenario run as a GIF (with unsafe-set overlay)
-│       ├── commonocean_scenario.py    # Single scenario runner with pyglet display
-│       ├── commonocean_collision_test.py  # Head-on collision test + GIF output
-│       └── plot_trajectories.py       # Trajectory plot generator for selected scenarios
-├── ais_replay/                        # AIS traffic adapter (recorded replay + aisstream.io live)
-│   ├── geo.py                         # lat/lon <-> local metric frame
-│   ├── tracker.py                     # Per-vessel dead-reckoning tracker (sparse AIS -> per-tick states)
-│   ├── sources.py                     # RecordedAISSource (JSONL), AISStreamSource (websocket)
-│   ├── runner.py                      # Drives the automaton through AIS traffic
-│   ├── sample_data/                   # Bundled synthetic recording (aisstream.io format)
-│   └── scripts/                       # run_replay.py, record_ais.py
-├── ros2/                              # ROS 2 colcon workspace (see ros2/README.md)
-│   └── src/
-│       ├── colav_interfaces/          # Obstacle/ObstacleArray message definitions
-│       ├── colav_ros/                 # Python rclpy node, fake_world + Gazebo demo, launch smoke test
-│       └── colav_cpp/                 # colav_core C++ port + rclcpp node + gtest cross-checks
-├── examples/
-│   └── realtime_simulation.py         # Standalone animated simulation (no Docker required)
-├── tests/                             # Pytest suite: unit + behavioural regression (no simulator needed)
-├── .github/workflows/ci.yml           # CI: ruff + pytest (Python 3.10/3.12) on every push
-├── docker/
-│   ├── Dockerfile                     # Full simulation stack (commonocean-sim + Gurobi + VNC)
-│   ├── docker-compose.yml             # Service definition with volume mounts
-│   └── start.sh                       # Helper to start/stop the container
-├── pyproject.toml
-└── README.md
+├── src/colav_automaton/          # Core automaton — pure Python, no simulator dependencies
+│   ├── automaton.py              #   async automaton factory (hybrid-automaton framework)
+│   ├── sync_runtime.py           #   deterministic tick-synchronous runtime (SyncColavRuntime)
+│   ├── controllers/              #   prescribed-time law, virtual waypoint V1, unsafe-set geometry
+│   ├── guards/                   #   transition guards (G11∧G22, ¬L1∨¬L2, ¬G23 + K_off) + risk index
+│   ├── dynamics/ resets/ invariants/
+│   └── _compat.py                #   normalizes the unsafe-set dependency's CPA sign convention
+├── commonocean_integration/      # Simulator adapter + batch evaluation (Docker) — see its README
+├── ais_replay/                   # Real AIS traffic replay, recorded + live — see its README
+├── ros2/                         # ROS 2 workspace: Python & C++ nodes, Gazebo demo — see its README
+├── examples/                     # Standalone animated simulation (no Docker required)
+├── tests/                        # Unit + behavioural regression suite
+├── docs/design.md                # Component-level design reference
+├── docker/                       # CommonOcean simulation stack (Dockerfile, compose, start.sh)
+└── .github/workflows/            # CI: ruff + pytest, and the ROS 2 colcon build + tests
 ```
 
-## Key Components
+## Documentation
 
-### Automaton Factory
-
-The [`ColavAutomaton()`](src/colav_automaton/automaton.py) function creates a configured hybrid automaton:
-
-```python
-ColavAutomaton(
-    waypoint_x: float,           # Target x-coordinate
-    waypoint_y: float,           # Target y-coordinate
-    obstacles: list,             # [(x, y, velocity, heading), ...]
-    Cs: float = 2.0,            # Safety radius (meters)
-    v: float = 12.0,            # Vessel velocity (m/s)
-    a: float = 1.67,            # System dynamics parameter
-    eta: float = 3.5,           # Controller gain
-    tp: float = 1.0,            # Prescribed time (seconds)
-    v1_buffer: float = 0.0,     # Virtual waypoint clearance buffer (meters)
-    K: float = 0.35,            # Risk-index threshold to enter avoidance (G22)
-    K_off: float = 0.25,        # Risk-index threshold to resume from S3 (hysteresis, < K)
-)
-```
-
-> **Note:** `delta` and `dsafe` are derived automatically:
-> - `delta = max(5.0, v * tp * 0.5)` — arrival tolerance
-> - `dsafe = Cs + v * tp` — safe distance threshold (paper eq 14)
-
-**CommonOcean evaluation uses:** `Cs=300.0`, `tp=3.0`, `a=1.67`, `eta=3.5` (real-world scale, dt=1s).
-
-**Stability condition:** The prescribed-time controller requires `a * dt < 2` and `tp > dt`. With `a=1.67` and `dt=1.0`: `a*dt = 1.67 < 2` ✓
-
-### State Dynamics
-
-Two continuous dynamics functions in [`dynamics.py`](src/colav_automaton/dynamics/dynamics.py):
-
-- **`waypoint_navigation_dynamics()`**: Shared by S1 and S2 — uses prescribed-time control to navigate toward the current waypoint (goal in S1, virtual waypoint V1 in S2)
-- **`constant_control_dynamics()`**: Used by S3 — maintains current heading (zero yaw rate)
-
-### Guards & Collision Detection
-
-Transition logic in [`guards.py`](src/colav_automaton/guards/guards.py) and [`conditions.py`](src/colav_automaton/guards/conditions.py):
-
-**G11 (LOS Intersection Check):**
-- Creates a cone from vessel position toward waypoint with radius `Cs` (= safety radius)
-- Tests intersection with unsafe set polygon using Shapely
-- Any obstacle within `Cs` of the direct path triggers avoidance
-
-**G22 (Risk Assessment):**
-- `RI(DCPA, TCPA, d_s) = ⅓·(F(DCPA) + F(TCPA) + F(d_s)) ≥ K` with the paper's piecewise
-  quadratic `F(z)` mapping each metric onto [0, 1]
-- Triggers avoidance much earlier than a plain distance check for converging traffic
-
-**G23 + K_off (Resume Check with Hysteresis):**
-- The ship leaves S3 only when the LOS to the waypoint is clear of the obstacle's unsafe
-  region **and** the risk index has dropped below `K_off < K`
-- The asymmetric thresholds (enter at `K ≥ 0.35`, resume below `K_off = 0.25`) prevent
-  rapid avoid/resume cycling against still-converging traffic
-
-**Post-avoidance waypoint recovery:**
-- On S2/S3 → S1 transition, waypoints that are now behind the vessel are skipped automatically, preventing backtracking after an avoidance manoeuvre
-
-### Controllers
-
-#### Prescribed-Time Controller ([`prescribed_time.py`](src/colav_automaton/controllers/prescribed_time.py))
-
-- **`compute_prescribed_time_control()`**: Computes the heading control law guaranteeing convergence to line-of-sight within time `tp`
-- **`HeadingControlProvider`**: Async control provider that runs alongside the automaton, computing control input `u` each cycle
-
-#### Virtual Waypoint ([`virtual_waypoint.py`](src/colav_automaton/controllers/virtual_waypoint.py))
-
-- **`compute_v1()`**: Selects the starboard-most unsafe set vertex ahead of the vessel (within ±90° of heading), with optional buffer. COLREGs-compliant starboard preference.
-
-#### Unsafe Set Geometry ([`unsafe_sets.py`](src/colav_automaton/controllers/unsafe_sets.py))
-
-- **`get_unsafe_set_vertices()`**: Convex hull vertices of unsafe regions (with swept region support for moving obstacles)
-- **`create_los_cone()`**: Convex cone from vessel toward waypoint for G11 intersection test
-
-## Algorithm References
-
-- **Prescribed-Time Control**: Guaranteed convergence within predefined time horizon
-- **Unsafe Set Theory**: Convex hull representation of collision regions
-- **Hybrid Automaton Framework**: Formal modelling of discrete state transitions with continuous dynamics
-- **COLREGS Compliance**: Starboard avoidance manoeuvres following maritime collision regulations
+| Document | Contents |
+|---|---|
+| [docs/design.md](docs/design.md) | Automaton parameters, both runtimes, guard math, controllers |
+| [ros2/README.md](ros2/README.md) | ROS 2 build/run, C++ port verification, Gazebo demo |
+| [commonocean_integration/README.md](commonocean_integration/README.md) | Docker stack, scenario runs, batch evaluation, visualization |
+| [ais_replay/README.md](ais_replay/README.md) | Recording and replaying AIS traffic, the tracking layer |
 
 ## Acknowledgments
 

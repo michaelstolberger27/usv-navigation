@@ -16,9 +16,10 @@ across 2000 simulated encounters and real AIS traffic, and deployed as a verifie
 
 ## Highlights
 
-- **0 collisions, 1999/2000 goals reached (Timeout unreached case)** - on the CommonOcean HandcraftedTwoVesselEncounters
-  benchmark (2000 two-vessel encounters with real curving traffic trajectories), bit-identical
-  across reruns — [Evaluation Results](#evaluation-results)
+- **0 collisions, 1999/2000 goals reached** on the CommonOcean HandcraftedTwoVesselEncounters
+  benchmark (2000 two-vessel encounters with real curving traffic trajectories; the single
+  miss timed out of its step budget — no collision), bit-identical across reruns —
+  [Evaluation Results](#evaluation-results)
 - **A verified C++ port, deployed in ROS 2** — cross-checked against the Python core layer by
   layer, up to a full 842-step avoidance trajectory reproduced **bit-identically**; the `rclcpp`
   node is a drop-in replacement for the Python node — [ros2/](ros2/README.md)

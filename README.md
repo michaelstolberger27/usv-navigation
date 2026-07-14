@@ -236,7 +236,8 @@ python examples/realtime_simulation.py --all           # all six scenarios
 
 Six predefined scenarios (stationary obstacle, crowded environment, head-on, crossing,
 overtaking, multi-vessel crossing — the GIFs above are scenarios 3 and 6); `--no-unsafe`
-hides the unsafe-region overlay.
+hides the unsafe-region overlay. Gallery of all six animations:
+[examples/README.md](examples/README.md).
 
 ### Simulator evaluation
 
@@ -290,6 +291,7 @@ usv-navigation/
 | [ros2/README.md](ros2/README.md) | ROS 2 build/run, C++ port verification, Gazebo demo |
 | [commonocean_integration/README.md](commonocean_integration/README.md) | Docker stack, scenario runs, batch evaluation, visualization |
 | [ais_traffic/README.md](ais_traffic/README.md) | Recording and replaying AIS traffic, the tracking layer |
+| [examples/README.md](examples/README.md) | Scenario gallery: all six encounter animations with their commands |
 
 ## Acknowledgments
 

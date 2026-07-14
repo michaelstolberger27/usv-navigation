@@ -16,7 +16,7 @@ across 2000 simulated encounters and real AIS traffic, and deployed as a verifie
 
 ## Highlights
 
-- **0 collisions, 1999/2000 goals reached** on the CommonOcean HandcraftedTwoVesselEncounters
+- **0 collisions, 1999/2000 goals reached (Timeout unreached case)** on the CommonOcean HandcraftedTwoVesselEncounters
   benchmark (2000 two-vessel encounters with real curving traffic trajectories), bit-identical
   across reruns — [Evaluation Results](#evaluation-results)
 - **A verified C++ port, deployed in ROS 2** — cross-checked against the Python core layer by
